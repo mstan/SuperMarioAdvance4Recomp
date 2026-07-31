@@ -9,6 +9,9 @@ generated/*.json
 build/
 build-*/
 recomp_cache/
+# Diagnostic output from runtime discovery/tracing.
+/0/
+/hang_trace.csv
 saves/
 *.sav
 *.srm

@@ -45,3 +45,535 @@ resize_view = false
 
 [audio]
 shadow = false
+
+# Startup copies the cartridge IRQ implementation verbatim from 0x080000FC
+# into IWRAM. A strict-miss capture matches exactly for 0x800 bytes.
+[[code_copy]]
+runtime_start = 0x03002240
+source_start = 0x080000FC
+size = 0x00000800
+name = "irq_handler_iwram"
+note = "Verified byte-for-byte against live IWRAM during attract startup"
+
+[[extra_func]]
+addr = 0x03002240
+mode = "arm"
+name = "irq_handler_iwram_entry"
+note = "ARM entry of verified startup IRQ relocation"
+
+# The flash library copies its four-byte Thumb read helper onto the active
+# IWRAM stack before calling it through the BX r5 veneer at 0x080E7E68.
+[[code_copy]]
+runtime_start = 0x03007D64
+source_start = 0x080E7814
+size = 0x00000004
+name = "flash_read_stack_stub"
+note = "Verified from live IWRAM and the copy loop at 0x080E7818"
+
+[[extra_func]]
+addr = 0x03007D64
+mode = "thumb"
+name = "flash_read_stack_stub_entry"
+note = "Thumb ldrb/bx-lr helper copied to the IWRAM stack"
+
+# A second flash helper copies one 4 KiB sector from cartridge save space.
+# The library copies the complete reviewed Thumb routine onto its IWRAM stack.
+[[code_copy]]
+runtime_start = 0x03007D0C
+source_start = 0x080E7858
+size = 0x00000024
+name = "flash_sector_copy_stack_stub"
+note = "Verified byte-for-byte against live IWRAM and the 0x080E78DC copy loop"
+
+[[extra_func]]
+addr = 0x03007D0C
+mode = "thumb"
+name = "flash_sector_copy_stack_stub_entry"
+note = "Thumb entry of verified flash-sector stack relocation"
+
+# Verification copies a reviewed compare helper onto a deeper IWRAM stack
+# frame. The complete routine is present in the live strict-miss capture.
+[[code_copy]]
+runtime_start = 0x03007C90
+source_start = 0x080E7918
+size = 0x00000030
+name = "flash_compare_stack_stub"
+note = "Verified byte-for-byte against live IWRAM and the 0x080E79A4 copy loop"
+
+[[extra_func]]
+addr = 0x03007C90
+mode = "thumb"
+name = "flash_compare_stack_stub_entry"
+note = "Thumb entry of verified flash-compare stack relocation"
+
+# The audio mixer is relocated as one contiguous block during startup. The
+# live IWRAM image matches this complete ROM span, including nested ARM helpers.
+[[code_copy]]
+runtime_start = 0x030013D8
+source_start = 0x080E72D4
+size = 0x00000360
+name = "audio_mixer_iwram"
+note = "Verified byte-for-byte against live IWRAM during attract"
+
+[[extra_func]]
+addr = 0x030013D8
+mode = "arm"
+name = "audio_mixer_iwram_entry"
+note = "ARM entry of verified audio-mixer relocation"
+
+[[extra_func]]
+addr = 0x080E7DB0
+mode = "thumb"
+name = "flash_program_callback_080e7db0"
+note = "Runtime-observed indirect flash callback with reviewed saved-register prologue"
+
+# Reviewed flash-library API roots reached through its cartridge descriptor
+# table or from another indirect root. Seeding this compact cluster also
+# covers their direct callees without interpreter fallback.
+[[extra_func]]
+addr = 0x080E7728
+mode = "thumb"
+name = "flash_timer_start_080e7728"
+note = "Reviewed flash helper with saved high-register prologue"
+
+[[extra_func]]
+addr = 0x080E77D0
+mode = "thumb"
+name = "flash_timer_stop_080e77d0"
+note = "Reviewed flash leaf helper after return and literal pool"
+
+[[extra_func]]
+addr = 0x080E7948
+mode = "thumb"
+name = "flash_verify_sector_080e7948"
+note = "Reviewed verifier that relocates the compare helper to IWRAM stack"
+
+[[extra_func]]
+addr = 0x080E7A78
+mode = "thumb"
+name = "flash_verify_retry_080e7a78"
+note = "Reviewed flash API entry with saved-register prologue"
+
+[[extra_func]]
+addr = 0x080E7B98
+mode = "thumb"
+name = "flash_poll_callback_080e7b98"
+note = "Runtime-observed indirect flash callback with saved high-register prologue"
+
+[[extra_func]]
+addr = 0x080E7C38
+mode = "thumb"
+name = "flash_identify_callback_080e7c38"
+note = "Reviewed flash API entry with saved-register prologue"
+
+# The flash polling API invokes the same four-byte read helper from a deeper
+# caller stack. Its live bytes again match the reviewed ROM source exactly.
+[[code_copy]]
+runtime_start = 0x03007CE0
+source_start = 0x080E7814
+size = 0x00000004
+name = "flash_poll_read_stack_stub"
+note = "Verified live stack instance used by the 0x080E7B98 polling callback"
+
+[[extra_func]]
+addr = 0x03007CE0
+mode = "thumb"
+name = "flash_poll_read_stack_stub_entry"
+note = "Thumb entry of verified flash-poll stack helper"
+
+[[code_copy]]
+runtime_start = 0x03007D34
+source_start = 0x080E7814
+size = 0x00000004
+name = "flash_program_read_stack_stub"
+note = "Verified live stack instance used by the flash program/erase path"
+
+[[extra_func]]
+addr = 0x03007D34
+mode = "thumb"
+name = "flash_program_read_stack_stub_entry"
+note = "Thumb entry of verified flash program/erase stack helper"
+
+[[code_copy]]
+runtime_start = 0x03007C78
+source_start = 0x080E7918
+size = 0x00000030
+name = "flash_write_compare_stack_stub"
+note = "Verified second live instance used by the write-and-verify wrapper"
+
+[[extra_func]]
+addr = 0x03007C78
+mode = "thumb"
+name = "flash_write_compare_stack_stub_entry"
+note = "Thumb entry of verified write-and-verify compare relocation"
+
+[[code_copy]]
+runtime_start = 0x03007CD0
+source_start = 0x080E7814
+size = 0x00000004
+name = "flash_erase_read_stack_stub"
+note = "Verified live stack instance used by the remaining flash erase wrapper"
+
+[[extra_func]]
+addr = 0x03007CD0
+mode = "thumb"
+name = "flash_erase_read_stack_stub_entry"
+note = "Thumb entry of verified flash erase stack helper"
+
+# During the write path, the active stack is four bytes shallower than the
+# earlier sector-copy call. This read helper consequently replaces bytes
+# 0x03007D24..0x03007D27 inside that older routine's address range. The runner
+# byte-validates this overlapping variant before dispatching it.
+[[code_copy]]
+runtime_start = 0x03007D24
+source_start = 0x080E7814
+size = 0x00000004
+name = "flash_write_read_stack_stub"
+note = "Verified live overlapping stack instance used by the write callback"
+
+[[extra_func]]
+addr = 0x03007D24
+source_addr = 0x080E7814
+mode = "thumb"
+name = "flash_write_read_stack_stub_entry"
+note = "Byte-validated Thumb read helper overlapping the earlier sector-copy tail"
+
+# The retry wrapper uses the same compare routine at a still deeper stack
+# address. This placement overlaps the two shallower compare-helper variants,
+# so retain its ROM backing explicitly rather than accepting the first
+# address-containing [[code_copy]] mapping.
+[[code_copy]]
+runtime_start = 0x03007C68
+source_start = 0x080E7918
+size = 0x00000030
+name = "flash_retry_compare_stack_stub"
+note = "Verified from the 0x080E79F4 copy loop immediately before its BX call"
+
+[[extra_func]]
+addr = 0x03007C68
+source_addr = 0x080E7918
+mode = "thumb"
+name = "flash_retry_compare_stack_stub_entry"
+note = "Explicit ROM-backed entry for the deepest overlapping compare helper"
+
+# Canonical ROM CFGs for the position-independent stack helpers. The runner
+# validates a complete live copy and translates its current RAM offset to one
+# of these immutable AOT roots, avoiding address collisions between stack
+# placements while retaining interrupt-resume coverage.
+[[extra_func]]
+addr = 0x080E7814
+mode = "thumb"
+name = "flash_read_pic_template"
+note = "Canonical two-instruction read leaf; no PC-relative data access"
+
+[[extra_func]]
+addr = 0x080E7858
+mode = "thumb"
+name = "flash_sector_copy_pic_template"
+note = "Canonical position-independent sector-copy helper"
+
+[[extra_func]]
+addr = 0x080E7918
+mode = "thumb"
+name = "flash_compare_pic_template"
+note = "Canonical position-independent compare helper"
+
+[[extra_func]]
+addr = 0x08025E48
+mode = "thumb"
+name = "scanline_irq_callback_08025e48"
+note = "Runtime-observed Thumb callback loaded by the relocated IRQ dispatcher"
+
+[[extra_func]]
+addr = 0x0800DF28
+mode = "thumb"
+name = "scanline_irq_callback_0800df28"
+note = "Second runtime-observed Thumb callback loaded by the relocated IRQ dispatcher"
+
+# Indirect and resume targets exercised by the deterministic basic-fuzz input.
+# Keep every observed target explicit so this acceptance path remains wholly
+# AOT and never depends on the interpreter or runtime self-healing.
+[[extra_func]]
+addr = 0x0802A7C0
+mode = "thumb"
+name = "fuzz_target_0802a7c0"
+
+[[extra_func]]
+addr = 0x0802A7D4
+mode = "thumb"
+name = "fuzz_target_0802a7d4"
+
+[[extra_func]]
+addr = 0x0802A7E4
+mode = "thumb"
+name = "fuzz_target_0802a7e4"
+
+[[extra_func]]
+addr = 0x0802A9A2
+mode = "thumb"
+name = "fuzz_target_0802a9a2"
+
+[[extra_func]]
+addr = 0x0802A9BC
+mode = "thumb"
+name = "fuzz_target_0802a9bc"
+
+[[extra_func]]
+addr = 0x0802A9C8
+mode = "thumb"
+name = "fuzz_target_0802a9c8"
+
+[[extra_func]]
+addr = 0x0802A9D4
+mode = "thumb"
+name = "fuzz_target_0802a9d4"
+
+[[extra_func]]
+addr = 0x0802A9DC
+mode = "thumb"
+name = "fuzz_target_0802a9dc"
+
+[[extra_func]]
+addr = 0x0802A9E6
+mode = "thumb"
+name = "fuzz_target_0802a9e6"
+
+[[extra_func]]
+addr = 0x0802A9F0
+mode = "thumb"
+name = "fuzz_target_0802a9f0"
+
+[[extra_func]]
+addr = 0x0802A9FA
+mode = "thumb"
+name = "fuzz_target_0802a9fa"
+
+[[extra_func]]
+addr = 0x0802AA04
+mode = "thumb"
+name = "fuzz_target_0802aa04"
+
+[[extra_func]]
+addr = 0x0802AA0E
+mode = "thumb"
+name = "fuzz_target_0802aa0e"
+
+[[extra_func]]
+addr = 0x0802AA18
+mode = "thumb"
+name = "fuzz_target_0802aa18"
+
+[[extra_func]]
+addr = 0x0802AA22
+mode = "thumb"
+name = "fuzz_target_0802aa22"
+
+[[extra_func]]
+addr = 0x0802AA2C
+mode = "thumb"
+name = "fuzz_target_0802aa2c"
+
+[[extra_func]]
+addr = 0x0802AA36
+mode = "thumb"
+name = "fuzz_target_0802aa36"
+
+[[extra_func]]
+addr = 0x0802AA40
+mode = "thumb"
+name = "fuzz_target_0802aa40"
+
+[[extra_func]]
+addr = 0x0802AA4A
+mode = "thumb"
+name = "fuzz_target_0802aa4a"
+
+[[extra_func]]
+addr = 0x0802AA54
+mode = "thumb"
+name = "fuzz_target_0802aa54"
+
+[[extra_func]]
+addr = 0x0802AA5E
+mode = "thumb"
+name = "fuzz_target_0802aa5e"
+
+[[extra_func]]
+addr = 0x0802AA68
+mode = "thumb"
+name = "fuzz_target_0802aa68"
+
+[[extra_func]]
+addr = 0x0802AA70
+mode = "thumb"
+name = "fuzz_target_0802aa70"
+
+[[extra_func]]
+addr = 0x0802AA7C
+mode = "thumb"
+name = "fuzz_target_0802aa7c"
+
+[[extra_func]]
+addr = 0x0802AA88
+mode = "thumb"
+name = "fuzz_target_0802aa88"
+
+[[extra_func]]
+addr = 0x0802AE14
+mode = "thumb"
+name = "fuzz_target_0802ae14"
+
+[[extra_func]]
+addr = 0x0802AF20
+mode = "thumb"
+name = "fuzz_target_0802af20"
+
+[[extra_func]]
+addr = 0x0802AFB4
+mode = "thumb"
+name = "fuzz_target_0802afb4"
+
+[[extra_func]]
+addr = 0x0802AFC4
+mode = "thumb"
+name = "fuzz_target_0802afc4"
+
+[[extra_func]]
+addr = 0x0802AFC8
+mode = "thumb"
+name = "fuzz_target_0802afc8"
+
+[[extra_func]]
+addr = 0x0802AFCC
+mode = "thumb"
+name = "fuzz_target_0802afcc"
+
+[[extra_func]]
+addr = 0x0802AFD0
+mode = "thumb"
+name = "fuzz_target_0802afd0"
+
+[[extra_func]]
+addr = 0x0802B006
+mode = "thumb"
+name = "fuzz_target_0802b006"
+
+[[extra_func]]
+addr = 0x0802B04C
+mode = "thumb"
+name = "fuzz_target_0802b04c"
+
+[[extra_func]]
+addr = 0x0802B050
+mode = "thumb"
+name = "fuzz_target_0802b050"
+
+[[extra_func]]
+addr = 0x0802B0C8
+mode = "thumb"
+name = "fuzz_target_0802b0c8"
+
+[[extra_func]]
+addr = 0x0802B0CE
+mode = "thumb"
+name = "fuzz_target_0802b0ce"
+
+[[extra_func]]
+addr = 0x0802B120
+mode = "thumb"
+name = "fuzz_target_0802b120"
+
+[[extra_func]]
+addr = 0x0802B170
+mode = "thumb"
+name = "fuzz_target_0802b170"
+
+[[extra_func]]
+addr = 0x0802B1BC
+mode = "thumb"
+name = "fuzz_target_0802b1bc"
+
+[[extra_func]]
+addr = 0x0802B1E0
+mode = "thumb"
+name = "fuzz_target_0802b1e0"
+
+[[extra_func]]
+addr = 0x0802B53C
+mode = "thumb"
+name = "fuzz_target_0802b53c"
+
+[[extra_func]]
+addr = 0x0802B624
+mode = "thumb"
+name = "fuzz_target_0802b624"
+
+[[extra_func]]
+addr = 0x0802B640
+mode = "thumb"
+name = "fuzz_target_0802b640"
+
+[[extra_func]]
+addr = 0x0802CC1C
+mode = "thumb"
+name = "fuzz_target_0802cc1c"
+
+[[extra_func]]
+addr = 0x0802CC46
+mode = "thumb"
+name = "fuzz_target_0802cc46"
+
+[[extra_func]]
+addr = 0x0802CC5C
+mode = "thumb"
+name = "fuzz_target_0802cc5c"
+
+[[extra_func]]
+addr = 0x0802CC86
+mode = "thumb"
+name = "fuzz_target_0802cc86"
+
+[[extra_func]]
+addr = 0x0802CC94
+mode = "thumb"
+name = "fuzz_target_0802cc94"
+
+[[extra_func]]
+addr = 0x0802CCE0
+mode = "thumb"
+name = "fuzz_target_0802cce0"
+
+[[extra_func]]
+addr = 0x0802CCE4
+mode = "thumb"
+name = "fuzz_target_0802cce4"
+
+[[extra_func]]
+addr = 0x0802CD02
+mode = "thumb"
+name = "fuzz_target_0802cd02"
+
+[[extra_func]]
+addr = 0x0803CCB8
+mode = "thumb"
+name = "fuzz_target_0803ccb8"
+
+[[extra_func]]
+addr = 0x0803CD28
+mode = "thumb"
+name = "fuzz_target_0803cd28"
+
+[[extra_func]]
+addr = 0x0803CD4A
+mode = "thumb"
+name = "fuzz_target_0803cd4a"
+
+[[extra_func]]
+addr = 0x0803CDDA
+mode = "thumb"
+name = "fuzz_target_0803cdda"
+
+[[extra_func]]
+addr = 0x0803CDE2
+mode = "thumb"
+name = "fuzz_target_0803cde2"

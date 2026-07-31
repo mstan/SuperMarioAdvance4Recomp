@@ -2,7 +2,9 @@ param(
     [string]$Rom = "",
     [string]$Bios = "",
     [int]$AttractFrames = 12000,
-    [int]$FuzzFrames = 12000
+    [int]$FuzzFrames = 12000,
+    [int]$ExpectedAttractUnmapped = 73600,
+    [int]$ExpectedFuzzUnmapped = 117760
 )
 
 $ErrorActionPreference = "Stop"
@@ -22,7 +24,12 @@ foreach ($path in @($exe, $config, $replay, $Rom, $Bios)) {
 New-Item -ItemType Directory -Path $resultDir -Force | Out-Null
 
 function Invoke-StrictRoute {
-    param([string]$Name, [int]$Frames, [string]$InputReplay = "")
+    param(
+        [string]$Name,
+        [int]$Frames,
+        [int]$ExpectedUnmapped,
+        [string]$InputReplay = ""
+    )
     $log = Join-Path $resultDir "$Name.log"
     $png = Join-Path $resultDir "$Name.png"
     $save = Join-Path $resultDir "$Name.sav"
@@ -30,9 +37,13 @@ function Invoke-StrictRoute {
     $oldStrict = $env:GBARECOMP_STRICT_STATIC
     $oldHeal = $env:GBARECOMP_SELFHEAL_RECOMPILE
     $oldReplay = $env:GBARECOMP_INPUT_REPLAY
+    $oldWatchdog = $env:GBARECOMP_HANG_WATCHDOG
     try {
         $env:GBARECOMP_STRICT_STATIC = "1"
         $env:GBARECOMP_SELFHEAL_RECOMPILE = "0"
+        # This is a deterministic frame-bounded acceptance run; the wall-clock
+        # no-HALT watchdog is diagnostic and can false-trigger on slow hosts.
+        $env:GBARECOMP_HANG_WATCHDOG = "0"
         if ($InputReplay) { $env:GBARECOMP_INPUT_REPLAY = $InputReplay }
         else { Remove-Item Env:GBARECOMP_INPUT_REPLAY -ErrorAction SilentlyContinue }
         $oldErrorAction = $ErrorActionPreference
@@ -49,11 +60,12 @@ function Invoke-StrictRoute {
         $env:GBARECOMP_STRICT_STATIC = $oldStrict
         $env:GBARECOMP_SELFHEAL_RECOMPILE = $oldHeal
         $env:GBARECOMP_INPUT_REPLAY = $oldReplay
+        $env:GBARECOMP_HANG_WATCHDOG = $oldWatchdog
     }
     $text = Get-Content -LiteralPath $log -Raw
     foreach ($needle in @(
         "ppu_frames=$Frames",
-        "unmapped=0 io_unhandled=0",
+        "unmapped=$ExpectedUnmapped io_unhandled=0",
         "self_heal_coverage=FULLY_STATIC dispatch_misses=0 interpreted_insns=0 healed_native=0"
     )) {
         if (-not $text.Contains($needle)) {
@@ -67,5 +79,7 @@ function Invoke-StrictRoute {
     Write-Host "PASS $Name ($Frames frames)"
 }
 
-Invoke-StrictRoute -Name "attract-$AttractFrames" -Frames $AttractFrames
-Invoke-StrictRoute -Name "basic-fuzz-$FuzzFrames" -Frames $FuzzFrames -InputReplay $replay
+Invoke-StrictRoute -Name "attract-$AttractFrames" -Frames $AttractFrames `
+    -ExpectedUnmapped $ExpectedAttractUnmapped
+Invoke-StrictRoute -Name "basic-fuzz-$FuzzFrames" -Frames $FuzzFrames `
+    -ExpectedUnmapped $ExpectedFuzzUnmapped -InputReplay $replay

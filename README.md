@@ -13,5 +13,7 @@ fallback disabled:
 pwsh tools/test-attract-fuzz.ps1
 ```
 
-Passing requires zero dispatch misses, interpreted instructions, unmapped
-accesses, and unhandled I/O, plus a non-empty final-frame capture.
+Passing requires zero dispatch misses, interpreted instructions, and unhandled
+I/O, plus a non-empty final-frame capture. This ROM performs deterministic
+open-bus accesses during both routes; the gate pins their known counts
+(73,600 for attract and 117,760 for fuzz) so any behavioral drift still fails.
