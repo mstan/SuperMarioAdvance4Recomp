@@ -1,8 +1,14 @@
 #include <cstdio>
 #include <cstring>
+#include <string>
+#include <vector>
 
 #include "runtime.h"
 #include "runtime_arm.h"
+
+#if defined(GBAGAME_RECOMP_UI)
+#include "game_launcher_boot.h"
+#endif
 
 namespace {
 
@@ -61,7 +67,13 @@ int main(int argc, char** argv) {
         if (std::strcmp(argv[i], "--help") == 0 ||
             std::strcmp(argv[i], "-h") == 0) {
             std::printf(
-                "SuperMarioAdvance4Recomp [--bios <path>] [--rom <path>] [game.toml]\n");
+                "SuperMarioAdvance4Recomp [--bios <path>] [--rom <path>] [game.toml]\n"
+                "\n"
+                "Windowed play opens the recomp-ui launcher first. "
+                "--no-launcher skips it\n"
+                "for one run; --launcher forces it past the persisted "
+                "skip-launcher setting.\n"
+                "Press Escape during play to open the in-game menu.\n");
             return 0;
         }
     }
@@ -70,5 +82,20 @@ int main(int argc, char** argv) {
     gbarecomp::RunOptions opts;
     opts.builtin_game_name = "Super Mario Advance 4: Super Mario Bros. 3 (USA, Rev 1)";
     opts.builtin_rom_sha1 = "532f3307021637474b6dd37da059ca360f612337";
+    opts.launcher_region = "USA";
+    opts.launcher_game_config = "game.toml";
+    opts.launcher_save_path = "saves/super_mario_advance_4_usa_rev1.sav";
+    opts.launcher_expose_widescreen = false;
+    opts.launcher_expose_adaptive_view = false;
+
+#if defined(GBAGAME_RECOMP_UI)
+    std::vector<std::string> args(argv, argv + argc);
+    if (game_launcher_preboot(args, opts)) return 0;
+    std::vector<char*> av;
+    av.reserve(args.size());
+    for (auto& arg : args) av.push_back(arg.data());
+    return gbarecomp::run_game(static_cast<int>(av.size()), av.data(), opts);
+#else
     return gbarecomp::run_game(argc, argv, opts);
+#endif
 }

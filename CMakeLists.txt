@@ -7,6 +7,10 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 set(GBARECOMP_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/gbarecomp"
     CACHE PATH "Path to this game's gbarecomp worktree")
+set(RECOMP_UI_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/recomp-ui"
+    CACHE PATH "Path to the shared recomp-ui checkout")
+set(GBARECOMP_RUNTIME_UI_ROOT "${RECOMP_UI_ROOT}"
+    CACHE PATH "recomp-ui root used by the live GBA runtime adapter")
 if(NOT EXISTS "${GBARECOMP_ROOT}/CMakeLists.txt")
     message(FATAL_ERROR
         "GBARECOMP_ROOT is not a gbarecomp checkout:\n"
@@ -54,6 +58,28 @@ target_compile_definitions(SuperMarioAdvance4Recomp PRIVATE
     GBARECOMP_DEFAULT_DEBUG_PORT=19883
     GBARECOMP_WINDOW_TITLE="SuperMarioAdvance4Recomp"
     GBARECOMP_DEFAULT_GAME_CONFIG="game.toml")
+
+option(GBAGAME_RECOMP_UI "Build the recomp-ui launcher and in-game menu" ON)
+if(GBAGAME_RECOMP_UI)
+    if(NOT EXISTS "${RECOMP_UI_ROOT}/recomp_ui.cmake")
+        message(FATAL_ERROR
+            "recomp-ui is not available at ${RECOMP_UI_ROOT}. "
+            "Run git submodule update --init --recursive or configure with "
+            "-DRECOMP_UI_ROOT=<path>.")
+    endif()
+    include("${RECOMP_UI_ROOT}/recomp_ui.cmake")
+    add_library(game_launcher_ui STATIC src/game_launcher_boot.cpp)
+    target_include_directories(game_launcher_ui PRIVATE
+        "${GBARECOMP_ROOT}/src/runtime"
+        "${GBARECOMP_ROOT}/src/gba"
+        src)
+    recomp_target_launcher_ui(game_launcher_ui CONSOLE gba)
+    find_package(SDL2 REQUIRED)
+    target_link_libraries(game_launcher_ui PUBLIC SDL2::SDL2)
+    target_link_libraries(SuperMarioAdvance4Recomp PRIVATE game_launcher_ui)
+    set_property(SOURCE src/main.cpp APPEND PROPERTY
+        COMPILE_DEFINITIONS GBAGAME_RECOMP_UI)
+endif()
 
 if(MSVC)
     target_link_options(SuperMarioAdvance4Recomp PRIVATE /STACK:16777216)
