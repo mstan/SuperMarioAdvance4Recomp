@@ -1,33 +1,60 @@
+# User-provided copyrighted inputs (never commit).
 roms/
-/gbarecomp
 *.gba
 *.GBA
-generated/*.c
-generated/*.cpp
-generated/*.h
-generated/*.json
+
+# Generated translations are derived from the user's ROM. Keep only the
+# placeholder/documentation file.
+generated/*
+!generated/README.md
+
+# Build and runtime output.
 build/
 build-*/
 recomp_cache/
-# Diagnostic output from runtime discovery/tracing.
-/0/
-/hang_trace.csv
+release-stage/
 saves/
 *.sav
 *.srm
 *.exe
 *.dll
 *.pdb
+*.obj
+*.ilk
+*.tlog
 *.log
 *.bmp
 *.png
+*.rgb
+*.csv
+*.frag
+*.bak
+
+# Diagnostic and scratch output.
+/0/
+_triage/
+_*
+
+# Local path/config caches.
 bios.cfg
 rom.cfg
 config.ini
 keybinds.ini
+*.local.toml
+*.local.ini
+debug.local.ini
+
+# Recompiler diagnostics.
 recomp_coverage*.json
 recomp_master_misses*.toml.frag
 recomp_seed_proposals.toml
+
+# IDE, OS, and language caches.
 .vs/
 .vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db
 __pycache__/
+*.pyc
