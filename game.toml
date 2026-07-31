@@ -1,0 +1,47 @@
+# Super Mario Advance 4: Super Mario Bros. 3 (USA/Australia, AX4E, revision 1).
+
+[game]
+name = "Super Mario Advance 4: Super Mario Bros. 3"
+short_name = "super_mario_advance_4"
+
+[program]
+name = "Super Mario Advance 4: Super Mario Bros. 3 (USA, Rev 1)"
+id = "AX4E"
+load_address = 0x08000000
+size = 0x00400000
+entry_pc = 0x08000000
+speculative_literal_harvest = false
+aot_scan_start = 0x08000000
+aot_scan_end = 0x08400000
+static_resume_all = true
+codegen_shards = 64
+
+[identity]
+sha1 = "532f3307021637474b6dd37da059ca360f612337"
+md5 = "605286b3aedeffba70bf46b834b120b1"
+
+[bios]
+path = "gbarecomp/bios/gba_bios.bin"
+sha1 = "300c20df6731a33952ded8c436f7f186d25d3492"
+hle = false
+
+[rom]
+path = "roms/super_mario_advance_4_usa_rev1.gba"
+sha1 = "532f3307021637474b6dd37da059ca360f612337"
+
+[save]
+type = "flash1m"
+size = 131072
+path = "saves/super_mario_advance_4_usa_rev1.sav"
+
+[runtime]
+debug_port = 19883
+window_title = "SuperMarioAdvance4Recomp"
+
+[video]
+screen = "frontlit"
+view_width = 240
+resize_view = false
+
+[audio]
+shadow = false
