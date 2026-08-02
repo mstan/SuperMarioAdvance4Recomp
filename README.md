@@ -61,6 +61,15 @@ cmake --build build --target SuperMarioAdvance4Recomp
 Generated translation units stay local because they are derived from the
 user's ROM.
 
+To create the sanitized Windows x64 archive:
+
+```powershell
+pwsh tools/make_release.ps1 -Version 0.0.1
+```
+
+The packager rejects ROMs, BIOS images, saves, generated source, developer
+configuration, and diagnostics before creating the zip.
+
 ## Controls
 
 | GBA control | Keyboard |
@@ -90,3 +99,5 @@ This project is an unaffiliated, non-commercial preservation and research
 effort. Mario and related names and artwork are trademarks or copyrights of
 their respective owners. No copyrighted game or BIOS data is distributed
 here.
+
+This project is part of the R.A.I.D. static-recompilation community.

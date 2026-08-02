@@ -1,6 +1,8 @@
 param(
     [string]$Rom = "",
     [string]$Bios = "",
+    [string]$BuildDir = "build",
+    [ValidateSet("Both", "Attract", "Fuzz")][string]$Route = "Both",
     [int]$AttractFrames = 12000,
     [int]$FuzzFrames = 12000,
     [int]$ExpectedAttractUnmapped = 73600,
@@ -9,7 +11,7 @@ param(
 
 $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $PSScriptRoot
-$exe = Join-Path $root "build\SuperMarioAdvance4Recomp.exe"
+$exe = Join-Path $root "$BuildDir\SuperMarioAdvance4Recomp.exe"
 $config = Join-Path $root "game.toml"
 $replay = Join-Path $root "tests\basic-fuzz.input"
 $resultDir = Join-Path $root "build\acceptance"
@@ -79,7 +81,11 @@ function Invoke-StrictRoute {
     Write-Host "PASS $Name ($Frames frames)"
 }
 
-Invoke-StrictRoute -Name "attract-$AttractFrames" -Frames $AttractFrames `
-    -ExpectedUnmapped $ExpectedAttractUnmapped
-Invoke-StrictRoute -Name "basic-fuzz-$FuzzFrames" -Frames $FuzzFrames `
-    -ExpectedUnmapped $ExpectedFuzzUnmapped -InputReplay $replay
+if ($Route -in @("Both", "Attract")) {
+    Invoke-StrictRoute -Name "attract-$AttractFrames" -Frames $AttractFrames `
+        -ExpectedUnmapped $ExpectedAttractUnmapped
+}
+if ($Route -in @("Both", "Fuzz")) {
+    Invoke-StrictRoute -Name "basic-fuzz-$FuzzFrames" -Frames $FuzzFrames `
+        -ExpectedUnmapped $ExpectedFuzzUnmapped -InputReplay $replay
+}
