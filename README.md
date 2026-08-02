@@ -1,56 +1,70 @@
-# SuperMarioAdvance4Recomp
+# Super Mario Advance 4 Recomp
 
-An early static recompilation of **Super Mario Advance 4: Super Mario Bros. 3**
-(Game Boy Advance, USA/Australia revision 1, `AX4E`) built on
-[`gbarecomp`](https://github.com/mstan/gbarecomp).
+> **Experimental preview.** This recompilation is a byproduct of developing
+> [gbarecomp](https://github.com/mstan/gbarecomp): the games are the proving
+> ground, while the reusable framework is the larger goal. This is not a
+> finished commercial port, so expect rough edges and please report problems.
+> For more context, read
+> [Recomp + AI: 5 Months Later »](https://1379.tech/recomp-ai-5-months-later/).
 
-This repository contains no ROM, Nintendo GBA BIOS, save data, or generated
-translation of ROM code. You must supply your own legally dumped copies.
+Static recompilation of **Super Mario Advance 4: Super Mario Bros. 3** for
+Windows. The original Game Boy Advance code runs as a native desktop
+application with a modern launcher, controller support, fullscreen display,
+audio settings, and save states.
+
+The game ROM and Nintendo GBA BIOS are **not included**. You must provide your
+own legally obtained dumps.
 
 ## Status
 
-The native build boots through the original BIOS, reaches the title sequence,
-and runs Super Mario Bros. 3 gameplay. The tested 12,000-frame passive boot and
-deterministic input/fuzz routes execute with full static AOT coverage: zero
-dispatch misses, interpreted instructions, self-healed functions, or
-unhandled I/O.
+The game boots, reaches the title screen, and runs Super Mario Bros. 3
+gameplay. The initial `v0.0.1` build is an experimental release; back up
+important saves and expect game-specific issues that have not been discovered
+yet.
 
-The ROM intentionally performs deterministic open-bus reads. Acceptance pins
-the current counts—73,600 on the passive route and 117,760 on the fuzz
-route—so behavioral drift still fails.
+## Quick start
 
-## Launcher and in-game menu
+1. Download the Windows zip from [Releases](../../releases) and extract it.
+2. Run `SuperMarioAdvance4Recomp.exe`.
+3. In the launcher, select your **Super Mario Advance 4: Super Mario Bros. 3
+   (USA/Australia, Rev 1)** ROM and retail GBA BIOS.
+4. Configure display, audio, and controls, then select **Play**.
 
-A normal windowed launch opens the `recomp-ui` setup screen for ROM/BIOS,
-display, audio, and controls. `--no-launcher` skips it once; `--launcher`
-forces it to reopen even when **Skip launcher on boot** is enabled.
+The launcher remembers valid files after the first setup. Enable **Skip
+launcher on boot** if you want later launches to go directly into the game.
 
-During play, press **Escape** or a controller's Guide button to open the
-in-game menu. Navigate with arrow keys or D-pad, accept with Enter/A, and go
-back with Escape/B. Scripted and headless runs bypass the launcher.
+## Features
 
-## Required ROM and BIOS
+- Native Windows x64 application
+- ROM and BIOS setup through the shared
+  [recomp-ui](https://github.com/mstan/recomp-ui) launcher
+- Keyboard and modern game-controller support
+- Windowed and fullscreen play with configurable presentation
+- In-game settings menu
+- Cartridge saves and save states
 
-| Input | Local path | Required SHA-1 |
-|---|---|---|
-| Super Mario Advance 4 (USA/Australia, Rev 1) ROM | `roms/super_mario_advance_4_usa_rev1.gba` | `532f3307021637474b6dd37da059ca360f612337` |
-| Game Boy Advance BIOS | `gbarecomp/bios/gba_bios.bin` | `300c20df6731a33952ded8c436f7f186d25d3492` |
+## Controls
 
-The runtime refuses an unrecognized ROM. Both inputs are ignored by Git.
+| GBA control | Keyboard |
+|---|---|
+| D-Pad | Arrow keys |
+| A / B | X / Z |
+| Start | Enter |
+| Select | Right Shift |
+| L / R | C / V |
+
+Use **Shift+F1-F9** to save a state and **F1-F9** to load one. Controls can be
+changed from the launcher.
 
 ## Building from source
 
-Prerequisites on Windows are CMake 3.20+, Ninja, and an MSYS2 MinGW64
-toolchain with SDL2. Clone both pinned public dependencies:
+Windows development requires CMake, Ninja, MSYS2 MinGW64, and SDL2:
 
 ```powershell
-git clone --recurse-submodules git@github.com:mstan/SuperMarioAdvance4Recomp.git
+git clone --recurse-submodules `
+  https://github.com/mstan/SuperMarioAdvance4Recomp.git
 cd SuperMarioAdvance4Recomp
-```
 
-After supplying the ROM and BIOS:
-
-```powershell
 cmake -S gbarecomp -B gbarecomp/build -G Ninja
 cmake --build gbarecomp/build --target gba_recompile
 pwsh tools/regen.ps1
@@ -58,46 +72,26 @@ cmake -S . -B build -G Ninja
 cmake --build build --target SuperMarioAdvance4Recomp
 ```
 
-Generated translation units stay local because they are derived from the
-user's ROM.
+Generation requires the supported ROM revision and a retail GBA BIOS. Their
+identities and local development paths are documented in
+[`baserom.md`](baserom.md) and [`game.toml`](game.toml). ROM-derived generated
+code, copyrighted inputs, saves, and build output remain local and are never
+included in releases.
 
-To create the sanitized Windows x64 archive:
-
-```powershell
-pwsh tools/make_release.ps1 -Version 0.0.1
-```
-
-The packager rejects ROMs, BIOS images, saves, generated source, developer
-configuration, and diagnostics before creating the zip.
-
-## Controls
-
-| GBA control | Keyboard |
-|---|---|
-| D-Pad | Arrow keys |
-| A / B | Z / X |
-| Start | Enter |
-| Select | Backspace |
-
-Save states use **Shift+F1-F9** to save and **F1-F9** to load.
-
-## Static acceptance
-
-The acceptance script runs bounded passive and deterministic input routes with
-the interpreter, cached overlay, and self-healing fallback disabled:
-
-```powershell
-pwsh tools/test-attract-fuzz.ps1
-```
-
-A pass requires the requested frame count, a non-empty capture, zero dispatch
-misses or interpreted instructions, and the pinned open-bus observations.
+Contributors can run `pwsh tools/test-attract-fuzz.ps1` for the automated
+native acceptance routes and `pwsh tools/make_release.ps1 -Version 0.0.1` to
+build a sanitized Windows package.
 
 ## Legal
 
-This project is an unaffiliated, non-commercial preservation and research
-effort. Mario and related names and artwork are trademarks or copyrights of
-their respective owners. No copyrighted game or BIOS data is distributed
-here.
+This is an unofficial, non-commercial preservation and research project. It
+is not affiliated with or endorsed by Nintendo. Mario and related names,
+characters, artwork, and game data are trademarks or copyrights of their
+respective owners.
 
-This project is part of the R.A.I.D. static-recompilation community.
+No copyrighted game ROM or Nintendo BIOS data is distributed by this project.
+
+---
+
+Part of the **R.A.I.D. — Retro AI Development** static-recompilation
+community.
