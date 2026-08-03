@@ -117,6 +117,9 @@ if ($LASTEXITCODE -ne 0) {
 This experimental v$Version preview runs the USA/Australia revision 1 retail
 game through gbarecomp with the recomp-ui launcher.
 
+This build is a byproduct of developing and testing gbarecomp. It has no
+affiliation with or endorsement from Nintendo.
+
 1. Extract the entire folder.
 2. Run $target.exe.
 3. Select your legally obtained matching ROM.
@@ -125,6 +128,8 @@ game through gbarecomp with the recomp-ui launcher.
 5. Select PLAY.
 
 The ROM and retail GBA BIOS are not included. Supply your own dumps.
+Interactive play has no implicit runtime step limit; only an explicit
+``--steps`` option applies a deterministic upper bound.
 
 Project: https://github.com/mstan/SuperMarioAdvance4Recomp
 Engine: https://github.com/mstan/gbarecomp
