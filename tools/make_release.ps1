@@ -8,6 +8,9 @@ BIOS, save data, generated source, or developer config.
 param(
     [Parameter(Mandatory = $true)][string]$Version,
     [string]$BuildDir = 'build-release',
+    [string]$GbarecompRoot = '',
+    [string]$RecompUiRoot = '',
+    [string]$GeneratedBiosDir = '',
     [ValidateRange(1, 32)][int]$Jobs = 4
 )
 
@@ -18,7 +21,14 @@ if ($Version -notmatch '^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$') {
 
 $mingwBin = 'C:\msys64\mingw64\bin'
 $root = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
-$engine = (Resolve-Path (Join-Path $root 'gbarecomp')).Path
+if (-not $GbarecompRoot) { $GbarecompRoot = Join-Path $root 'gbarecomp' }
+if (-not $RecompUiRoot) { $RecompUiRoot = Join-Path $root 'recomp-ui' }
+$engine = (Resolve-Path -LiteralPath $GbarecompRoot).Path
+$uiRoot = (Resolve-Path -LiteralPath $RecompUiRoot).Path
+if (-not $GeneratedBiosDir) {
+    $GeneratedBiosDir = Join-Path $engine 'src/runtime/generated_bios'
+}
+$biosGenerated = (Resolve-Path -LiteralPath $GeneratedBiosDir).Path
 $build = Join-Path $root $BuildDir
 $out = Join-Path $root 'release-stage'
 $target = 'SuperMarioAdvance4Recomp'
@@ -39,9 +49,9 @@ foreach ($required in @(
     (Join-Path $mingwBin 'ninja.exe'),
     (Join-Path $mingwBin 'strip.exe'),
     (Join-Path $engine 'tools\fetch_tcc.ps1'),
-    (Join-Path $engine 'src\runtime\generated_bios\bios_recompiled.cpp'),
-    (Join-Path $engine 'src\runtime\generated_bios\bios_recompiled.h'),
-    (Join-Path $root 'recomp-ui\recomp_ui.cmake')
+    (Join-Path $biosGenerated 'bios_recompiled.cpp'),
+    (Join-Path $biosGenerated 'bios_recompiled.h'),
+    (Join-Path $uiRoot 'recomp_ui.cmake')
 )) {
     if (-not (Test-Path -LiteralPath $required)) {
         throw "Required release dependency is missing: $required"
@@ -63,6 +73,10 @@ New-Item -ItemType Directory -Force -Path $out | Out-Null
     -DCMAKE_MAKE_PROGRAM="$mingwBin/ninja.exe" `
     -DCMAKE_BUILD_TYPE=Release `
     "-DGAME_BUILD_VERSION=$Version" `
+    "-DGBARECOMP_ROOT=$engine" `
+    "-DRECOMP_UI_ROOT=$uiRoot" `
+    "-DGBARECOMP_RUNTIME_UI_ROOT=$uiRoot" `
+    "-DGBARECOMP_GENERATED_BIOS_DIR=$biosGenerated" `
     "-DCMAKE_CXX_FLAGS_RELEASE=-O1 -DNDEBUG" `
     -DGBARECOMP_BUILD_ORACLE=OFF `
     -DGBARECOMP_MINGW_PREFIX_UNIX='/c/msys64/mingw64' `
@@ -186,7 +200,7 @@ try {
             throw "Refusing to archive a file outside the release stage: $rzFull"
         }
         $rzName = $rzFull.Substring($rzPrefix.Length).Replace('\', '/')
-        if ($rzName.StartsWith('/') -or $rzName -match '(^|/)..(/|$)') {
+        if ($rzName.StartsWith('/') -or $rzName -match '(^|/)\.\.(/|$)') {
             throw "Unsafe ZIP entry name: $rzName"
         }
         [IO.Compression.ZipFileExtensions]::CreateEntryFromFile(
@@ -204,7 +218,7 @@ try {
     $rzBad = @($rzArchive.Entries | Where-Object {
         $_.FullName.Contains('\') -or
         $_.FullName.StartsWith('/') -or
-        $_.FullName -match '(^|/)..(/|$)'
+        $_.FullName -match '(^|/)\.\.(/|$)'
     })
     if ($rzBad.Count -ne 0) {
         throw "ZIP contains non-portable entry names: $(
