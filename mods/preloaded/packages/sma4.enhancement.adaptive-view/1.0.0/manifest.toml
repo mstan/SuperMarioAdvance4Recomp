@@ -1,0 +1,24 @@
+format_version = 1
+id = "sma4.enhancement.adaptive-view"
+version = "1.0.0"
+name = "Super Mario Advance 4 Experimental Widescreen"
+author = "mstan"
+description = "Experimental terrain and backdrop expansion for horizontal SMB3 levels. Sprite spawning and clipping retain native limits; other scenes keep native framing."
+license = "MIT"
+resolver = "declarative"
+save_compatibility = "shared"
+
+[[target]]
+game_id = "super-mario-advance-4-us-rev1"
+rom_sha1 = "532f3307021637474b6dd37da059ca360f612337"
+
+[[feature]]
+id = "adaptive-view"
+name = "Adaptive Widescreen (Experimental)"
+description = "Fit horizontal level scenery to the window. Sprites retain native visibility limits. Menus and vertical levels keep native framing."
+group = "Display"
+default_enabled = true
+
+[[plugin]]
+feature = "adaptive-view"
+id = "sma4.adaptive-view"

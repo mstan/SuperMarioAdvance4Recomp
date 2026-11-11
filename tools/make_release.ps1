@@ -62,6 +62,7 @@ New-Item -ItemType Directory -Force -Path $out | Out-Null
     -DCMAKE_CXX_COMPILER="$mingwBin/c++.exe" `
     -DCMAKE_MAKE_PROGRAM="$mingwBin/ninja.exe" `
     -DCMAKE_BUILD_TYPE=Release `
+    "-DGAME_BUILD_VERSION=$Version" `
     "-DCMAKE_CXX_FLAGS_RELEASE=-O1 -DNDEBUG" `
     -DGBARECOMP_BUILD_ORACLE=OFF `
     -DGBARECOMP_MINGW_PREFIX_UNIX='/c/msys64/mingw64' `
@@ -86,7 +87,7 @@ if (Test-Path -LiteralPath $stage) {
             "$resolvedOut\", [System.StringComparison]::OrdinalIgnoreCase)) {
         throw "Refusing to remove stage outside release output: $resolvedStage"
     }
-    Remove-Item -LiteralPath $resolvedStage -Recurse -Force
+    Remove-Item -LiteralPath $resolvedStage -Recurse
 }
 New-Item -ItemType Directory -Force -Path $stage | Out-Null
 Copy-Item -LiteralPath $exe -Destination $stage
@@ -104,6 +105,7 @@ if (-not (Test-Path -LiteralPath (Join-Path $assets 'img'))) {
     throw "recomp-ui launcher assets are missing: $assets"
 }
 Copy-Item -LiteralPath $assets -Destination $stage -Recurse
+Copy-Item -LiteralPath (Join-Path $root 'mods/preloaded') -Destination (Join-Path $stage 'mods') -Recurse
 
 & (Join-Path $engine 'tools\fetch_tcc.ps1') `
     -Toolchain (Join-Path $stage 'overlay_toolchain') -EngineRoot $engine
@@ -133,6 +135,11 @@ Interactive play has no implicit runtime step limit; only an explicit
 
 Project: https://github.com/mstan/SuperMarioAdvance4Recomp
 Engine: https://github.com/mstan/gbarecomp
+
+Adaptive Widescreen is enabled for fresh settings and follows the window.
+This experimental mod expands horizontal SMB3 terrain and backdrops; sprite
+spawning and clipping retain native limits. Menus and vertical levels use
+native framing. Disable it from Mods to use the original view throughout.
 "@ | Out-File -LiteralPath (Join-Path $stage 'README.md') -Encoding utf8
 
 $forbidden = Get-ChildItem -LiteralPath $stage -Recurse -File |
@@ -150,7 +157,7 @@ if ($forbidden) {
 }
 
 if (Test-Path -LiteralPath $zip) {
-    Remove-Item -LiteralPath $zip -Force
+    Remove-Item -LiteralPath $zip
 }
 Add-Type -AssemblyName System.IO.Compression
 Add-Type -AssemblyName System.IO.Compression.FileSystem
