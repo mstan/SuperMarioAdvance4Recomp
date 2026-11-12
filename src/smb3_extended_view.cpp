@@ -9,6 +9,25 @@
 #include "smb3_entity_view.h"
 
 namespace smb3 {
+bool horizontal_level_loaded(const gba::GbaBus* bus) {
+    if (!bus) return false;
+    const auto* ram = bus->iwram_ptr();
+    const unsigned state = ram[0x3774];
+    if (ram[0x77d8] != 1 || ram[0x3cb3] != 0 || ram[0x3849] >= 19)
+        return false;
+    if (state == 0x19 || state == 0x1a) return true;
+    if (state != 0x1b && state != 0x1c) return false;
+    const auto* io = bus->io().raw();
+    const auto halfword = [io](unsigned offset) {
+        return unsigned(io[offset]) | (unsigned(io[offset + 1]) << 8);
+    };
+    // The return-to-map state also runs after the level RAM is replaced.
+    // Retain its last visible level frame, but stop sampling that geometry
+    // once the all-layer fade is opaque or the map layout is installed.
+    const bool opaque = (halfword(0x50) & 0xffu) == 0xffu &&
+                        (halfword(0x54) & 31u) >= 16u;
+    return !opaque && halfword(8) == 0x9400u && halfword(10) == 0xd801u;
+}
 namespace {
 int g_output_width = 240;
 
@@ -25,12 +44,7 @@ int signed16(const std::uint8_t* p) {
 }
 
 bool horizontal_level(const gba::GbaBus* bus) {
-    if (!bus) return false;
-    const auto* ram = bus->iwram_ptr();
-    // Both the opening wipe and normal play use the loaded level geometry.
-    return ram[0x77d8] == 1 &&
-           (ram[0x3774] == 0x19 || ram[0x3774] == 0x1a) &&
-           ram[0x3cb3] == 0 && ram[0x3849] < 19;
+    return horizontal_level_loaded(bus);
 }
 
 bool entering_level(const gba::GbaBus* bus) {
@@ -73,14 +87,11 @@ int background_coordinates(int bg, int x, int y, int* source_x, int* source_y) {
     const int origin = native_origin();
     int mapped = x;
     if (bg == 0) {
-        // Status text and the power meter belong to the physical screen.
-        // Moving the world origin must not move or duplicate their tilemap.
+        // Center the top status line and modal UI. Keep the gameplay power
+        // meter at its screen edge; the overworld uses one centered HUD.
         mapped += origin;
-        if (overworld(bus) && y >= 136) {
-            if (mapped >= g_output_width - 54)
-                mapped -= g_output_width - 240;
-            else if (mapped >= 186) return -1;
-        }
+        if (overworld(bus) || y < 136)
+            mapped -= (g_output_width - 240) / 2;
         if (mapped < 0 || mapped >= 240) return -1;
     } else if ((bg == 2 || bg == 3) && horizontal_level(bus)) {
         const int camera = display_scroll(bus, 0x3750, 0x14);
@@ -99,9 +110,9 @@ int screen_object_x(int index, std::uint16_t attr0, std::uint16_t attr1,
     const auto* bus = gbarecomp::active_bus();
     if (out_x && (horizontal_level(bus) || overworld(bus)) && index >= 0 && index < 3 &&
         (attr0 & 0xffu) == 143u && (attr2 & 0x3ffu) == 8u) {
-        // The three goal-card boxes are screen-space OAM. Their native
-        // bottom-right inset stays fixed as the logical width changes.
-        *out_x = static_cast<int>(attr1 & 511u) + g_output_width - 240 - native_origin();
+        const int inset = overworld(bus) ? (g_output_width - 240) / 2
+                                         : g_output_width - 240;
+        *out_x = static_cast<int>(attr1 & 511u) + inset - native_origin();
         return 1;
     }
     return entity_view_object_x(index, attr0, attr1, attr2, out_x);
@@ -202,8 +213,10 @@ void update_extended_view(const gbarecomp::ExtendedViewFrameInfo* frame) {
     const auto* bus = gbarecomp::active_bus();
     const bool field = horizontal_level(bus);
     const bool map = overworld(bus);
+    const bool leaving = bus && bus->iwram_ptr()[0x77d8] == 1 &&
+        (bus->iwram_ptr()[0x3774] == 0x1b || bus->iwram_ptr()[0x3774] == 0x1c);
     if (frame) g_output_width = static_cast<int>(frame->view_width);
-    gba::g_ws_pillarbox = field || map || entering_level(bus) ? 0 : 1;
+    gba::g_ws_pillarbox = field || map || entering_level(bus) || leaving ? 0 : 1;
     gba::g_ws_window_x_provider = map || entering_level(bus) ? transition_window_x : nullptr;
     gba::g_ws_native_view_left = -1;
     if (field && frame) {

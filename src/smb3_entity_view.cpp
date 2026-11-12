@@ -1,4 +1,5 @@
 #include "smb3_entity_view.h"
+#include "smb3_extended_view.h"
 #include "gba_bus.h"
 #include "runtime.h"
 #include "runtime_arm.h"
@@ -13,18 +14,21 @@ namespace smb3 {
 namespace {
 bool enabled = false;
 std::uint32_t entity = 0;
+// The guest stages 176 entries at 03002DC8 and another 128 at 03003348,
+// then compacts them into the hardware's 128 slots. Observe both source pools.
+constexpr unsigned kSourceEntries = 176 + 128;
 struct Publication {
     std::uint32_t entity, world_x;
     int x;
-    std::uint16_t a0, a1, a2, id;
+    std::uint16_t a0, a1, a2, id, source_index;
 };
-std::array<Publication, 128> publications{};
-std::array<Publication, 128> previous_publications{};
+std::array<Publication, kSourceEntries> publications{};
+std::array<Publication, kSourceEntries> previous_publications{};
 unsigned publication_count = 0;
 unsigned previous_count = 0;
 bool initial_scan = false;
 int initial_camera = 0;
-std::array<std::uint8_t, 0x400> before_oam{};
+std::array<std::uint8_t, kSourceEntries * 8> before_oam{};
 const gba::GbaBus* context_bus = nullptr;
 unsigned long long context_epoch = 0;
 bool restored_context = false;
@@ -52,10 +56,7 @@ std::uint32_t u32(const std::uint8_t* p) {
 }
 unsigned u16(const std::uint8_t* p) { return p[0] | (unsigned(p[1]) << 8); }
 bool field(const gba::GbaBus* bus) {
-    if (!enabled || !bus) return false;
-    const auto* r = bus->iwram_ptr();
-    return r[0x77d8] == 1 && (r[0x3774] == 0x19 || r[0x3774] == 0x1a) &&
-           r[0x3cb3] == 0 && r[0x3849] < 19;
+    return enabled && horizontal_level_loaded(bus);
 }
 int camera(const gba::GbaBus* bus) {
     return static_cast<std::int16_t>(u16(bus->iwram_ptr() + 0x3750));
@@ -72,7 +73,10 @@ bool sprite_address(const gba::GbaBus* bus, std::uint32_t address) {
 // outside both edges. Stored positions, physics and collision reads are intact.
 std::uint32_t visibility_position(std::uint32_t fixed_x, int cam) {
     int x = (static_cast<std::int32_t>(fixed_x) >> 8) - cam + origin(cam);
-    x = x < 0 ? x : x >= 480 ? x - 240 : std::min(x, 239);
+    // The guest adds unsigned bounding-box offsets of up to 128px afterwards.
+    // Keep that whole box safely inside the native viewport in the expanded
+    // interior; preserve the outer bands for exact edge tests.
+    x = x < 96 ? x : x >= 336 ? x - 240 : 96;
     return (std::uint32_t(cam + x) << 8) | (fixed_x & 255u);
 }
 
@@ -86,22 +90,23 @@ struct SavedContext {
     std::uint32_t entity = 0;
     bool scan = false;
     int camera = 0;
-    std::array<std::uint8_t, 0x400> before{};
-    std::array<Publication, 128> current{}, previous{};
+    std::array<std::uint8_t, kSourceEntries * 8> before{};
+    std::array<Publication, kSourceEntries> current{}, previous{};
     unsigned current_count = 0, previous_count = 0;
 };
 void write_publications(SnapshotWriter& out,
-                        const std::array<Publication, 128>& entries,
+                        const std::array<Publication, kSourceEntries>& entries,
                         unsigned count) {
     out.u16(static_cast<std::uint16_t>(count));
     for (unsigned i = 0; i < count; ++i) {
         const auto& p = entries[i];
         out.u32(p.entity); out.u32(p.world_x); out.u32(std::uint32_t(p.x));
         out.u16(p.a0); out.u16(p.a1); out.u16(p.a2); out.u16(p.id);
+        out.u16(p.source_index);
     }
 }
 bool read_publications(SnapshotReader& in,
-                       std::array<Publication, 128>& entries, unsigned& count) {
+                       std::array<Publication, kSourceEntries>& entries, unsigned& count) {
     count = in.u16();
     if (count > entries.size()) return false;
     for (unsigned i = 0; i < count; ++i) {
@@ -109,9 +114,13 @@ bool read_publications(SnapshotReader& in,
         p.entity = in.u32(); p.world_x = in.u32();
         p.x = static_cast<std::int32_t>(in.u32());
         p.a0 = in.u16(); p.a1 = in.u16(); p.a2 = in.u16(); p.id = in.u16();
+        p.source_index = in.u16();
         if (!valid_entity(p.entity) || p.x < -32768 || p.x > 32767 ||
-            (std::uint32_t(p.x) & 511u) != (p.a1 & 511u) || p.id > 0x12cu)
+            (std::uint32_t(p.x) & 511u) != (p.a1 & 511u) || p.id > 0x12cu ||
+            p.source_index >= kSourceEntries)
             return false;
+        for (unsigned j = 0; j < i; ++j)
+            if (entries[j].source_index == p.source_index) return false;
     }
     return in.ok();
 }
@@ -159,7 +168,7 @@ bool register_entity_view_state() {
     if (registered) return true;
     std::string error;
     registered = gbarecomp::debug::register_mod_state_provider(
-        {"sma4.entity-view", 1, nullptr, save_context,
+        {"sma4.entity-view", 3, nullptr, save_context,
          preflight_context, restore_context}, &error);
     if (!registered) std::fprintf(stderr, "%s\n", error.c_str());
     return registered;
@@ -177,7 +186,8 @@ int entity_view_read(std::uint32_t pc, std::uint32_t address,
     // Filter before touching RAM: ordinary guest reads keep a cheap fast exit.
     if (pc != 0x08049cf6u && pc != 0x0804a82au &&
         pc != 0x080461beu && pc != 0x080481d4u &&
-        pc != 0x080462bau && pc != 0x080462c0u) return 0;
+        pc != 0x080462bau && pc != 0x080462c0u &&
+        pc != 0x08044f26u && pc != 0x08044f2cu) return 0;
     const auto* bus = gbarecomp::active_bus();
     validate_context(bus);
     if (!out || !field(bus)) return 0;
@@ -211,6 +221,17 @@ int entity_view_read(std::uint32_t pc, std::uint32_t address,
         address == 0x08046334u && value == 0x011f0000u) {
         *out = 0x020f0000u; return 1;
     }
+    // Metasprites (including plant heads and shells) have a separate culler.
+    // Change only its comparison inputs; later OAM writes still read the real
+    // cached screen coordinate, preserving animation, collisions and position.
+    if (pc == 0x08044f26u && width == 2 &&
+        address == u32(bus->iwram_ptr() + 0x7848) + 0x0cc2u) {
+        *out = std::uint16_t(value + left); return 1;
+    }
+    if (pc == 0x08044f2cu && width == 4 &&
+        address == 0x08044f44u && value == 0x011f0000u) {
+        *out = 0x020f0000u; return 1;
+    }
     return 0;
 }
 
@@ -229,7 +250,22 @@ void observe_entity_view_entry(std::uint32_t pc) {
     if (pc == 0x08042b60u) {
         previous_publications = publications;
         previous_count = publication_count;
-        entity = 0; publication_count = 0; return;
+        // Idle shells and plant animations can publish identical OAM for many
+        // frames. Preserve their last proven source entry until it changes or
+        // its entity disappears; two quiet frames do not revoke ownership.
+        const auto* ram = bus->iwram_ptr();
+        unsigned kept = 0;
+        for (unsigned i = 0; i < publication_count; ++i) {
+            const auto& p = publications[i];
+            if (!sprite_address(bus, p.entity)) continue;
+            const auto* sprite = ram + p.entity - 0x03000000u;
+            const auto* oam = ram + 0x2dc8 + p.source_index * 8u;
+            if (!sprite[0x16] || u16(sprite + 0x18u) != p.id ||
+                u16(oam) != p.a0 || u16(oam + 2) != p.a1 ||
+                u16(oam + 4) != p.a2) continue;
+            publications[kept++] = p;
+        }
+        entity = 0; publication_count = kept; return;
     }
     if (pc == 0x080429c8u) {
         entity = sprite_address(bus, g_cpu.R[0]) ? g_cpu.R[0] : 0;
@@ -245,10 +281,16 @@ void observe_entity_view_entry(std::uint32_t pc) {
     const auto world = u32(ram + entity - 0x03000000u);
     const int cam = camera(bus);
     const int relative = (static_cast<std::int32_t>(world) >> 8) - cam;
-    for (unsigned i = 0; i < 128 && publication_count < publications.size(); ++i) {
+    for (unsigned i = 0; i < kSourceEntries; ++i) {
         const auto* p = ram + 0x2dc8 + i * 8u;
-        if (std::memcmp(p, before_oam.data() + i * 8u, 6) == 0 || p[0] == 160)
-            continue;
+        if (std::memcmp(p, before_oam.data() + i * 8u, 6) == 0) continue;
+        // A changed slot replaces its earlier writer even when it is hidden.
+        for (unsigned j = 0; j < publication_count; ++j) {
+            if (publications[j].source_index != i) continue;
+            publications[j] = publications[--publication_count];
+            break;
+        }
+        if (p[0] == 160 || publication_count == publications.size()) continue;
         const auto a0 = std::uint16_t(u16(p)), a1 = std::uint16_t(u16(p+2));
         int x = a1 & 511;
         while (x - relative > 256) x -= 512;
@@ -257,7 +299,8 @@ void observe_entity_view_entry(std::uint32_t pc) {
         if (x < -32768 || x > 32767) continue;
         publications[publication_count++] = {entity, world, x,
             a0, a1, std::uint16_t(u16(p+4)),
-            std::uint16_t(u16(ram + entity - 0x03000000u + 0x18u))};
+            std::uint16_t(u16(ram + entity - 0x03000000u + 0x18u)),
+            static_cast<std::uint16_t>(i)};
     }
 }
 
@@ -279,8 +322,11 @@ int entity_view_object_x(int index, std::uint16_t a0, std::uint16_t a1,
         const auto* sprite = ram + p.entity - 0x03000000u;
         const auto delta = std::int64_t(static_cast<std::int32_t>(u32(sprite))) -
                            static_cast<std::int32_t>(p.world_x);
+        const int relative = (static_cast<std::int32_t>(u32(sprite)) >> 8) -
+                             camera(bus);
         if (!sprite[0x16] || u16(sprite + 0x18u) != p.id ||
-            delta < -128 * 256 || delta > 128 * 256) continue;
+            delta < -128 * 256 || delta > 128 * 256 ||
+            relative - p.x < -128 || relative - p.x > 128) continue;
         if (found && authored != p.x) return 0; // ambiguous publication
         found = true;
         authored = p.x;
