@@ -68,6 +68,27 @@ bool sprite_address(const gba::GbaBus* bus, std::uint32_t address) {
            address >= start && address < start + 18u * 0x70u &&
            (address - start) % 0x70u == 0;
 }
+bool projectile_address(const gba::GbaBus* bus, std::uint32_t address) {
+    const auto heap = u32(bus->iwram_ptr() + 0x7848);
+    const auto start = heap + 0x8ecu;
+    return heap >= 0x03000000u && heap <= 0x03008000u - 0xa54u &&
+           address >= start && address < start + 15u * 0x18u &&
+           (address - start) % 0x18u == 0;
+}
+bool publication_owner(const gba::GbaBus* bus, std::uint32_t address,
+                        unsigned* id) {
+    if (sprite_address(bus, address)) {
+        const auto* actor = bus->iwram_ptr() + address - 0x03000000u;
+        *id = u16(actor + 0x18);
+        return actor[0x16] != 0;
+    }
+    if (projectile_address(bus, address)) {
+        const auto* shot = bus->iwram_ptr() + address - 0x03000000u;
+        *id = shot[0x0e];
+        return *id == 5; // Native Venus Fire Trap fireball.
+    }
+    return false;
+}
 // These two reads feed only native horizontal visibility/despawn predicates.
 // Map the wider interior into their accepted interval, retaining distances
 // outside both edges. Stored positions, physics and collision reads are intact.
@@ -161,6 +182,36 @@ void restore_context(void*, SnapshotReader& in) {
     context_epoch = g_runtime_state_epoch;
     restored_context = true;
 }
+void finish_publication(const gba::GbaBus* bus) {
+    unsigned owner_id = 0;
+    if (!publication_owner(bus, entity, &owner_id)) return;
+    const auto* ram = bus->iwram_ptr();
+    const auto world = u32(ram + entity - 0x03000000u);
+    const int cam = camera(bus);
+    const int relative = (static_cast<std::int32_t>(world) >> 8) - cam;
+    for (unsigned i = 0; i < kSourceEntries; ++i) {
+        const auto* p = ram + 0x2dc8 + i * 8u;
+        if (std::memcmp(p, before_oam.data() + i * 8u, 6) == 0) continue;
+        // A changed slot replaces its earlier writer even when it is hidden.
+        for (unsigned j = 0; j < publication_count; ++j) {
+            if (publications[j].source_index != i) continue;
+            publications[j] = publications[--publication_count];
+            break;
+        }
+        if (p[0] == 160 || publication_count == publications.size()) continue;
+        const auto a0 = std::uint16_t(u16(p)), a1 = std::uint16_t(u16(p+2));
+        int x = a1 & 511;
+        while (x - relative > 256) x -= 512;
+        while (relative - x > 256) x += 512;
+        if (x - relative < -128 || x - relative > 128) continue;
+        if (x < -32768 || x > 32767) continue;
+        publications[publication_count++] = {entity, world, x,
+            a0, a1, std::uint16_t(u16(p+4)),
+            static_cast<std::uint16_t>(owner_id),
+            static_cast<std::uint16_t>(i)};
+    }
+}
+
 }
 
 bool register_entity_view_state() {
@@ -187,12 +238,31 @@ int entity_view_read(std::uint32_t pc, std::uint32_t address,
     if (pc != 0x08049cf6u && pc != 0x0804a82au &&
         pc != 0x080461beu && pc != 0x080481d4u &&
         pc != 0x080462bau && pc != 0x080462c0u &&
-        pc != 0x08044f26u && pc != 0x08044f2cu) return 0;
+        pc != 0x08044f26u && pc != 0x08044f2cu &&
+        pc != 0x0808dc36u && pc != 0x08065676u) return 0;
     const auto* bus = gbarecomp::active_bus();
     validate_context(bus);
     if (!out || !field(bus)) return 0;
     const int cam = camera(bus);
     const int left = origin(initial_scan ? initial_camera : cam);
+    if (pc == 0x0808dc36u && width == 4 && projectile_address(bus, address) &&
+        bus->iwram_ptr()[address - 0x03000000u + 0x0eu] == 5) {
+        // The secondary-sprite loop kills plant fireballs before their draw
+        // function runs. Widen only that lifetime predicate, not their motion.
+        *out = visibility_position(value, cam); return 1;
+    }
+    if (pc == 0x08065676u && width == 4 && value == 0x011f0000u &&
+        sprite_address(bus, entity)) {
+        const auto* actor = bus->iwram_ptr() + entity - 0x03000000u;
+        const int border_x = static_cast<std::int16_t>(
+            u16(actor + 0x46u) - cam - 8) + origin(cam);
+        if (u16(actor + 0x18u) == 0x41u && border_x >= -32 && border_x <= 495) {
+            // This separate border culler uses its saved anchor, rather than
+            // the card face's draw path. Admit the expanded interval without
+            // biasing the coordinates later used to write the border OAM.
+            *out = 0xffffffffu; return 1;
+        }
+    }
     if (pc == 0x08049cf6u && width == 2) {
         // Native source-column activation: right edge +32, left edge -48.
         // Keep one canonical 480px simulation area even at a 240px window.
@@ -237,12 +307,27 @@ int entity_view_read(std::uint32_t pc, std::uint32_t address,
 
 void observe_entity_view_entry(std::uint32_t pc) {
     if (pc != 0x08042b60u && pc != 0x080429c8u && pc != 0x08047ad4u &&
-        pc != 0x0804a4b0u && pc != 0x0804a928u)
+        pc != 0x0804a4b0u && pc != 0x0804a928u &&
+        pc != 0x0808dc04u && pc != 0x0808e544u)
         return;
     const auto* bus = gbarecomp::active_bus();
     validate_context(bus);
     if (!field(bus)) { entity = 0; publication_count = previous_count = 0;
         initial_scan = false; return; }
+    if (pc == 0x0808dc04u || pc == 0x0808e544u) {
+        // The secondary pool calls Proc once per slot, then enters 8E544.
+        // Capture the preceding slot before the next writer can reuse its OAM.
+        if (projectile_address(bus, entity)) finish_publication(bus);
+        entity = 0;
+        unsigned id = 0;
+        if (pc == 0x0808dc04u && projectile_address(bus, g_cpu.R[0]) &&
+            publication_owner(bus, g_cpu.R[0], &id)) {
+            entity = g_cpu.R[0];
+            std::memcpy(before_oam.data(), bus->iwram_ptr() + 0x2dc8,
+                        before_oam.size());
+        }
+        return;
+    }
     if (pc == 0x0804a4b0u) {
         initial_scan = true; initial_camera = camera(bus); return;
     }
@@ -257,10 +342,10 @@ void observe_entity_view_entry(std::uint32_t pc) {
         unsigned kept = 0;
         for (unsigned i = 0; i < publication_count; ++i) {
             const auto& p = publications[i];
-            if (!sprite_address(bus, p.entity)) continue;
-            const auto* sprite = ram + p.entity - 0x03000000u;
+            unsigned id = 0;
+            if (!publication_owner(bus, p.entity, &id)) continue;
             const auto* oam = ram + 0x2dc8 + p.source_index * 8u;
-            if (!sprite[0x16] || u16(sprite + 0x18u) != p.id ||
+            if (id != p.id ||
                 u16(oam) != p.a0 || u16(oam + 2) != p.a1 ||
                 u16(oam + 4) != p.a2) continue;
             publications[kept++] = p;
@@ -277,31 +362,8 @@ void observe_entity_view_entry(std::uint32_t pc) {
     // compaction. Observe only changed publications from that entity, including
     // writers using the reverse allocation pool. No OAM-index guess is needed.
     if (!entity || entity != g_cpu.R[0]) return;
-    const auto* ram = bus->iwram_ptr();
-    const auto world = u32(ram + entity - 0x03000000u);
-    const int cam = camera(bus);
-    const int relative = (static_cast<std::int32_t>(world) >> 8) - cam;
-    for (unsigned i = 0; i < kSourceEntries; ++i) {
-        const auto* p = ram + 0x2dc8 + i * 8u;
-        if (std::memcmp(p, before_oam.data() + i * 8u, 6) == 0) continue;
-        // A changed slot replaces its earlier writer even when it is hidden.
-        for (unsigned j = 0; j < publication_count; ++j) {
-            if (publications[j].source_index != i) continue;
-            publications[j] = publications[--publication_count];
-            break;
-        }
-        if (p[0] == 160 || publication_count == publications.size()) continue;
-        const auto a0 = std::uint16_t(u16(p)), a1 = std::uint16_t(u16(p+2));
-        int x = a1 & 511;
-        while (x - relative > 256) x -= 512;
-        while (relative - x > 256) x += 512;
-        if (x - relative < -128 || x - relative > 128) continue;
-        if (x < -32768 || x > 32767) continue;
-        publications[publication_count++] = {entity, world, x,
-            a0, a1, std::uint16_t(u16(p+4)),
-            std::uint16_t(u16(ram + entity - 0x03000000u + 0x18u)),
-            static_cast<std::uint16_t>(i)};
-    }
+    finish_publication(bus);
+    entity = 0;
 }
 
 int entity_view_object_x(int index, std::uint16_t a0, std::uint16_t a1,
@@ -319,14 +381,15 @@ int entity_view_object_x(int index, std::uint16_t a0, std::uint16_t a1,
     for (unsigned i = 0; i < publication_count + previous_count; ++i) {
         const auto& p = i < publication_count ? publications[i] :
             previous_publications[i - publication_count];
+        unsigned id = 0;
         if (p.a0 != a0 || p.a1 != a1 || p.a2 != a2 ||
-            !sprite_address(bus, p.entity)) continue;
+            !publication_owner(bus, p.entity, &id)) continue;
         const auto* sprite = ram + p.entity - 0x03000000u;
         const auto delta = std::int64_t(static_cast<std::int32_t>(u32(sprite))) -
                            static_cast<std::int32_t>(p.world_x);
         const int relative = (static_cast<std::int32_t>(u32(sprite)) >> 8) -
                              camera(bus);
-        if (!sprite[0x16] || u16(sprite + 0x18u) != p.id ||
+        if (id != p.id ||
             delta < -128 * 256 || delta > 128 * 256 ||
             relative - p.x < -128 || relative - p.x > 128) continue;
         if (found && authored != p.x) return 0; // ambiguous publication
