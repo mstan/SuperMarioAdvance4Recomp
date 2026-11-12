@@ -308,7 +308,9 @@ int entity_view_object_x(int index, std::uint16_t a0, std::uint16_t a1,
                          std::uint16_t a2, int* x) {
     const auto* bus = gbarecomp::active_bus();
     validate_context(bus);
-    if (!x || index < 3 || !field(bus)) return 0;
+    // Hardware OAM is compacted: when the temporary HUD is hidden, actual
+    // entities can occupy slots 0..2 as well. Their provenance identifies them.
+    if (!x || index < 0 || index >= 128 || !field(bus)) return 0;
     const auto* ram = bus->iwram_ptr();
     bool found = false;
     int authored = 0;

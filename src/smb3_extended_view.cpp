@@ -30,6 +30,7 @@ bool horizontal_level_loaded(const gba::GbaBus* bus) {
 }
 namespace {
 int g_output_width = 240;
+bool g_goal_clear = false;
 
 unsigned read16(const std::uint8_t* p) {
     return unsigned(p[0]) | (unsigned(p[1]) << 8);
@@ -81,6 +82,40 @@ int half_scroll(int x) {
     return x / 2 - (x < 0 && x % 2 != 0 ? 1 : 0);
 }
 
+int level_right(const gba::GbaBus* bus) {
+    // Main-header byte 4 supplies the final 256px screen index.
+    const unsigned last_screen = bus->iwram_ptr()[0x3ae6];
+    return last_screen < 16 ? static_cast<int>((last_screen + 1) * 256) : 4096;
+}
+
+bool goal_clear_active(const gba::GbaBus* bus) {
+    const auto* ram = bus->iwram_ptr();
+    const unsigned actors = read32(ram + 0x7848);
+    if (actors < 0x03000000u || actors > 0x03008000u - 18u * 0x70u)
+        return false;
+    for (unsigned slot = 0; slot < 18; ++slot) {
+        const auto* actor = ram + actors - 0x03000000u + slot * 0x70u;
+        // The goal panel's idle phase is zero; subsequent phases own the
+        // clear presentation. Other actors and inactive slots cannot trigger it.
+        if (actor[0x16] && read16(actor + 0x18) == 0x41u && actor[0x13])
+            return true;
+    }
+    return false;
+}
+
+bool goal_backdrop_row(const gba::GbaBus* bus, int y) {
+    const auto* io = bus->io().raw();
+    const unsigned control = read16(io + 10);
+    const unsigned wide = (control >> 14) & 1u;
+    const unsigned tx = (read16(io + 0x14) & 511u) / 8;
+    const unsigned ty = ((read16(io + 0x16) + y) &
+                         ((control & 0x8000u) ? 511u : 255u)) / 8;
+    const unsigned screen = (ty / 32) * (wide + 1) + (wide ? tx / 32 : 0);
+    const unsigned offset = ((control >> 8) & 31u) * 0x800u +
+        screen * 0x800u + ((ty % 32) * 32 + tx % 32) * 2;
+    return offset + 2 <= 0x10000u && read16(bus->vram_ptr() + offset) == 0x40fcu;
+}
+
 int background_coordinates(int bg, int x, int y, int* source_x, int* source_y) {
     const auto* bus = gbarecomp::active_bus();
     if (!source_x || !source_y || !(horizontal_level(bus) || overworld(bus))) return 0;
@@ -109,7 +144,11 @@ int screen_object_x(int index, std::uint16_t attr0, std::uint16_t attr1,
                     std::uint16_t attr2, int* out_x) {
     const auto* bus = gbarecomp::active_bus();
     if (out_x && (horizontal_level(bus) || overworld(bus)) && index >= 0 && index < 3 &&
-        (attr0 & 0xffu) == 143u && (attr2 & 0x3ffu) == 8u) {
+        (attr0 & 0xc3ffu) == 143u &&
+        (attr1 & 0xfe00u) == 0x4000u &&
+        (attr1 & 511u) == 189u + 14u * static_cast<unsigned>(index) &&
+        (attr2 & 0xf000u) == 0x8000u) {
+        // Slot geometry identifies the HUD card, including its filled faces.
         const int inset = overworld(bus) ? (g_output_width - 240) / 2
                                          : g_output_width - 240;
         *out_x = static_cast<int>(attr1 & 511u) + inset - native_origin();
@@ -175,10 +214,18 @@ int tilemap(int bg, int x, int y, std::uint16_t* entry) {
     if (bg == 2 || bg == 3) return gba::kWsTilemapKeepWrapped;
     if (bg != 1) return gba::kWsTilemapUnavailable;
 
+    // The authored goal area uses an opaque BG1 backdrop instead of the
+    // normal sky. Continue its native edge into the added clear-screen margin,
+    // while keeping rows containing terrain and all native columns intact.
+    if (g_goal_clear && x < 0 && goal_backdrop_row(bus, y)) {
+        *entry = 0x40fcu;
+        return gba::kWsTilemapReplace;
+    }
+
     const auto* ram = bus->iwram_ptr();
     const int world_x = x + display_scroll(bus, 0x3750, 0x14);
     const int world_y = y + display_scroll(bus, 0x3754, 0x16);
-    if (world_x < 0 || world_x >= 4096 || world_y < 0 || world_y >= 1024)
+    if (world_x < 0 || world_x >= level_right(bus) || world_y < 0 || world_y >= 1024)
         return gba::kWsTilemapUnavailable;
 
     // Horizontal maps hold sixteen 256px screens. Each screen is sixteen
@@ -213,6 +260,7 @@ void update_extended_view(const gbarecomp::ExtendedViewFrameInfo* frame) {
     const auto* bus = gbarecomp::active_bus();
     const bool field = horizontal_level(bus);
     const bool map = overworld(bus);
+    g_goal_clear = field && goal_clear_active(bus);
     const bool leaving = bus && bus->iwram_ptr()[0x77d8] == 1 &&
         (bus->iwram_ptr()[0x3774] == 0x1b || bus->iwram_ptr()[0x3774] == 0x1c);
     if (frame) g_output_width = static_cast<int>(frame->view_width);
@@ -225,6 +273,15 @@ void update_extended_view(const gbarecomp::ExtendedViewFrameInfo* frame) {
         // level to the right, rather than exposing negative world coordinates.
         gba::g_ws_native_view_left = std::clamp(camera_x, 0,
                                                static_cast<int>(frame->extra_left));
+        // Stop the expanded camera at the same authored level edge as the
+        // native camera. Its last screen consumes all extra width on the left,
+        // so the clear walk exits the canvas instead of entering unused tiles.
+        const int right = level_right(bus);
+        if (right >= g_output_width) {
+            const int padding = g_output_width - 240;
+            gba::g_ws_native_view_left = std::max(gba::g_ws_native_view_left,
+                std::clamp(camera_x + g_output_width - right, 0, padding));
+        }
     }
 }
 
