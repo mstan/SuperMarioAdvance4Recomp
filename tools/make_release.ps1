@@ -8,6 +8,9 @@ BIOS, save data, generated source, or developer config.
 param(
     [Parameter(Mandatory = $true)][string]$Version,
     [string]$BuildDir = 'build-release',
+    [string]$GbarecompRoot = '',
+    [string]$RecompUiRoot = '',
+    [string]$GeneratedBiosDir = '',
     [ValidateRange(1, 32)][int]$Jobs = 4
 )
 
@@ -18,7 +21,14 @@ if ($Version -notmatch '^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$') {
 
 $mingwBin = 'C:\msys64\mingw64\bin'
 $root = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
-$engine = (Resolve-Path (Join-Path $root 'gbarecomp')).Path
+if (-not $GbarecompRoot) { $GbarecompRoot = Join-Path $root 'gbarecomp' }
+if (-not $RecompUiRoot) { $RecompUiRoot = Join-Path $root 'recomp-ui' }
+$engine = (Resolve-Path -LiteralPath $GbarecompRoot).Path
+$uiRoot = (Resolve-Path -LiteralPath $RecompUiRoot).Path
+if (-not $GeneratedBiosDir) {
+    $GeneratedBiosDir = Join-Path $engine 'src/runtime/generated_bios'
+}
+$biosGenerated = (Resolve-Path -LiteralPath $GeneratedBiosDir).Path
 $build = Join-Path $root $BuildDir
 $out = Join-Path $root 'release-stage'
 $target = 'SuperMarioAdvance4Recomp'
@@ -34,14 +44,14 @@ $dlls = @(
 )
 
 foreach ($required in @(
-    (Join-Path $mingwBin 'cc.exe'),
-    (Join-Path $mingwBin 'c++.exe'),
+    (Join-Path $mingwBin 'gcc.exe'),
+    (Join-Path $mingwBin 'g++.exe'),
     (Join-Path $mingwBin 'ninja.exe'),
     (Join-Path $mingwBin 'strip.exe'),
     (Join-Path $engine 'tools\fetch_tcc.ps1'),
-    (Join-Path $engine 'src\runtime\generated_bios\bios_recompiled.cpp'),
-    (Join-Path $engine 'src\runtime\generated_bios\bios_recompiled.h'),
-    (Join-Path $root 'recomp-ui\recomp_ui.cmake')
+    (Join-Path $biosGenerated 'bios_recompiled.cpp'),
+    (Join-Path $biosGenerated 'bios_recompiled.h'),
+    (Join-Path $uiRoot 'recomp_ui.cmake')
 )) {
     if (-not (Test-Path -LiteralPath $required)) {
         throw "Required release dependency is missing: $required"
@@ -58,10 +68,15 @@ $env:PATH = "$mingwBin;$env:PATH"
 New-Item -ItemType Directory -Force -Path $out | Out-Null
 
 & cmake -S $root -B $build -G Ninja `
-    -DCMAKE_C_COMPILER="$mingwBin/cc.exe" `
-    -DCMAKE_CXX_COMPILER="$mingwBin/c++.exe" `
+    -DCMAKE_C_COMPILER="$mingwBin/gcc.exe" `
+    -DCMAKE_CXX_COMPILER="$mingwBin/g++.exe" `
     -DCMAKE_MAKE_PROGRAM="$mingwBin/ninja.exe" `
     -DCMAKE_BUILD_TYPE=Release `
+    "-DGAME_BUILD_VERSION=$Version" `
+    "-DGBARECOMP_ROOT=$engine" `
+    "-DRECOMP_UI_ROOT=$uiRoot" `
+    "-DGBARECOMP_RUNTIME_UI_ROOT=$uiRoot" `
+    "-DGBARECOMP_GENERATED_BIOS_DIR=$biosGenerated" `
     "-DCMAKE_CXX_FLAGS_RELEASE=-O1 -DNDEBUG" `
     -DGBARECOMP_BUILD_ORACLE=OFF `
     -DGBARECOMP_MINGW_PREFIX_UNIX='/c/msys64/mingw64' `
@@ -86,7 +101,13 @@ if (Test-Path -LiteralPath $stage) {
             "$resolvedOut\", [System.StringComparison]::OrdinalIgnoreCase)) {
         throw "Refusing to remove stage outside release output: $resolvedStage"
     }
-    Remove-Item -LiteralPath $resolvedStage -Recurse -Force
+    $stageItems = @(Get-Item -LiteralPath $resolvedStage) +
+        @(Get-ChildItem -LiteralPath $resolvedStage -Recurse -Force)
+    if ($stageItems | Where-Object {
+        ($_.Attributes -band [IO.FileAttributes]::ReparsePoint) -or
+        $_.Name -eq '.git'
+    }) { throw 'Refusing to remove a stage containing a link or repository.' }
+    Remove-Item -LiteralPath $resolvedStage -Recurse
 }
 New-Item -ItemType Directory -Force -Path $stage | Out-Null
 Copy-Item -LiteralPath $exe -Destination $stage
@@ -104,6 +125,7 @@ if (-not (Test-Path -LiteralPath (Join-Path $assets 'img'))) {
     throw "recomp-ui launcher assets are missing: $assets"
 }
 Copy-Item -LiteralPath $assets -Destination $stage -Recurse
+Copy-Item -LiteralPath (Join-Path $root 'mods/preloaded') -Destination (Join-Path $stage 'mods') -Recurse
 
 & (Join-Path $engine 'tools\fetch_tcc.ps1') `
     -Toolchain (Join-Path $stage 'overlay_toolchain') -EngineRoot $engine
@@ -133,6 +155,12 @@ Interactive play has no implicit runtime step limit; only an explicit
 
 Project: https://github.com/mstan/SuperMarioAdvance4Recomp
 Engine: https://github.com/mstan/gbarecomp
+
+Adaptive Widescreen is enabled for fresh settings and follows the window.
+This experimental mod expands horizontal SMB3 terrain, backdrops and enemy
+visibility, anchors the HUD, and uses wide stage-entry wipes. Enemy coverage
+is qualified in World 1-1; other stages still need testing. Menus and vertical
+levels use native framing. Disable it from Mods to use the original view.
 "@ | Out-File -LiteralPath (Join-Path $stage 'README.md') -Encoding utf8
 
 $forbidden = Get-ChildItem -LiteralPath $stage -Recurse -File |
@@ -150,7 +178,7 @@ if ($forbidden) {
 }
 
 if (Test-Path -LiteralPath $zip) {
-    Remove-Item -LiteralPath $zip -Force
+    Remove-Item -LiteralPath $zip
 }
 Add-Type -AssemblyName System.IO.Compression
 Add-Type -AssemblyName System.IO.Compression.FileSystem
@@ -179,7 +207,7 @@ try {
             throw "Refusing to archive a file outside the release stage: $rzFull"
         }
         $rzName = $rzFull.Substring($rzPrefix.Length).Replace('\', '/')
-        if ($rzName.StartsWith('/') -or $rzName -match '(^|/)..(/|$)') {
+        if ($rzName.StartsWith('/') -or $rzName -match '(^|/)\.\.(/|$)') {
             throw "Unsafe ZIP entry name: $rzName"
         }
         [IO.Compression.ZipFileExtensions]::CreateEntryFromFile(
@@ -197,7 +225,7 @@ try {
     $rzBad = @($rzArchive.Entries | Where-Object {
         $_.FullName.Contains('\') -or
         $_.FullName.StartsWith('/') -or
-        $_.FullName -match '(^|/)..(/|$)'
+        $_.FullName -match '(^|/)\.\.(/|$)'
     })
     if ($rzBad.Count -ne 0) {
         throw "ZIP contains non-portable entry names: $(

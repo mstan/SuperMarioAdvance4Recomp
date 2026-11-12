@@ -1,0 +1,24 @@
+format_version = 1
+id = "sma4.enhancement.adaptive-view"
+version = "1.0.0"
+name = "Super Mario Advance 4 Experimental Widescreen"
+author = "mstan"
+description = "Experimental horizontal SMB3 view with expanded terrain, earlier enemy activation, anchored HUD and widescreen entry wipes. Vertical levels and other unqualified scenes keep native framing."
+license = "MIT"
+resolver = "declarative"
+save_compatibility = "shared"
+
+[[target]]
+game_id = "super-mario-advance-4-us-rev1"
+rom_sha1 = "532f3307021637474b6dd37da059ca360f612337"
+
+[[feature]]
+id = "adaptive-view"
+name = "Adaptive Widescreen (Experimental)"
+description = "Fit horizontal levels to the window with wider enemy visibility and a fixed HUD. Experimental: enemy coverage is qualified in World 1-1; vertical levels and menus keep native framing."
+group = "Display"
+default_enabled = true
+
+[[plugin]]
+feature = "adaptive-view"
+id = "sma4.adaptive-view"
