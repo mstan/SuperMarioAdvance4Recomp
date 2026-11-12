@@ -33,6 +33,7 @@ file(GLOB GAME_GENERATED_SOURCES CONFIGURE_DEPENDS
 add_executable(SuperMarioAdvance4Recomp
     src/main.cpp
     src/smb3_extended_view.cpp
+    src/smb3_entity_view.cpp
     src/mods/smb3_adaptive_view_plugin.cpp
     ${GAME_GENERATED_SOURCES})
 

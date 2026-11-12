@@ -6,29 +6,157 @@
 #include "gba_ppu.h"
 #include "runtime.h"
 #include "runtime_bus_bridge.h"
+#include "smb3_entity_view.h"
 
 namespace smb3 {
 namespace {
+int g_output_width = 240;
+
 unsigned read16(const std::uint8_t* p) {
     return unsigned(p[0]) | (unsigned(p[1]) << 8);
 }
 unsigned read32(const std::uint8_t* p) {
     return read16(p) | (read16(p + 2) << 16);
 }
+int signed16(const std::uint8_t* p) {
+    const unsigned value = read16(p);
+    return value < 0x8000u ? static_cast<int>(value)
+                           : static_cast<int>(value) - 0x10000;
+}
 
 bool horizontal_level(const gba::GbaBus* bus) {
     if (!bus) return false;
     const auto* ram = bus->iwram_ptr();
-    // The adapter targets the hash-gated USA revision 1. Menus, transitions,
-    // the separate Mario Bros. game and vertical levels retain native framing.
-    return ram[0x77d8] == 1 && ram[0x3774] == 0x1a &&
+    // Both the opening wipe and normal play use the loaded level geometry.
+    return ram[0x77d8] == 1 &&
+           (ram[0x3774] == 0x19 || ram[0x3774] == 0x1a) &&
            ram[0x3cb3] == 0 && ram[0x3849] < 19;
+}
+
+bool entering_level(const gba::GbaBus* bus) {
+    if (!bus) return false;
+    const auto* ram = bus->iwram_ptr();
+    return ram[0x77d8] == 1 && ram[0x3774] >= 0x12 && ram[0x3774] <= 0x19;
+}
+
+bool overworld(const gba::GbaBus* bus) {
+    if (!bus) return false;
+    const auto* ram = bus->iwram_ptr();
+    const auto* io = bus->io().raw();
+    return ram[0x77d8] == 1 && ram[0x3774] >= 0x11 && ram[0x3774] <= 0x15 &&
+           read16(io + 8) == 0xd600u && read16(io + 10) == 0xda03u;
+}
+
+int native_origin() {
+    return gba::g_ws_native_view_left >= 0 ? gba::g_ws_native_view_left
+                                          : (g_output_width - 240) / 2;
+}
+
+int display_scroll(const gba::GbaBus* bus, unsigned ram_offset,
+                   unsigned io_offset) {
+    // RAM supplies the complete world coordinate, while the PPU register is
+    // the scroll actually displayed on this row. Match its low nine bits so
+    // the authored map has the same texel phase as the native VRAM ring.
+    const int full = signed16(bus->iwram_ptr() + ram_offset);
+    const unsigned hardware = read16(bus->io().raw() + io_offset) & 511u;
+    const unsigned delta = (hardware - static_cast<unsigned>(full) + 256u) & 511u;
+    return full + static_cast<int>(delta) - 256;
+}
+
+int half_scroll(int x) {
+    return x / 2 - (x < 0 && x % 2 != 0 ? 1 : 0);
+}
+
+int background_coordinates(int bg, int x, int y, int* source_x, int* source_y) {
+    const auto* bus = gbarecomp::active_bus();
+    if (!source_x || !source_y || !(horizontal_level(bus) || overworld(bus))) return 0;
+    const int origin = native_origin();
+    int mapped = x;
+    if (bg == 0) {
+        // Status text and the power meter belong to the physical screen.
+        // Moving the world origin must not move or duplicate their tilemap.
+        mapped += origin;
+        if (overworld(bus) && y >= 136) {
+            if (mapped >= g_output_width - 54)
+                mapped -= g_output_width - 240;
+            else if (mapped >= 186) return -1;
+        }
+        if (mapped < 0 || mapped >= 240) return -1;
+    } else if ((bg == 2 || bg == 3) && horizontal_level(bus)) {
+        const int camera = display_scroll(bus, 0x3750, 0x14);
+        // These layers move at half camera speed. Rebase only the camera
+        // contribution, retaining the guest's other scroll/animation offsets.
+        mapped += origin - (half_scroll(camera) - half_scroll(camera - origin));
+    } else return 0;
+    if (mapped == x) return 0;
+    *source_x = mapped;
+    *source_y = y;
+    return 1;
+}
+
+int screen_object_x(int index, std::uint16_t attr0, std::uint16_t attr1,
+                    std::uint16_t attr2, int* out_x) {
+    const auto* bus = gbarecomp::active_bus();
+    if (out_x && (horizontal_level(bus) || overworld(bus)) && index >= 0 && index < 3 &&
+        (attr0 & 0xffu) == 143u && (attr2 & 0x3ffu) == 8u) {
+        // The three goal-card boxes are screen-space OAM. Their native
+        // bottom-right inset stays fixed as the logical width changes.
+        *out_x = static_cast<int>(attr1 & 511u) + g_output_width - 240 - native_origin();
+        return 1;
+    }
+    return entity_view_object_x(index, attr0, attr1, attr2, out_x);
+}
+
+int transition_window_x(int x, int, int* out_x) {
+    if (!out_x) return 0;
+    const auto* bus = gbarecomp::active_bus();
+    int native_center = 120;
+    int output_center = g_output_width / 2;
+    if (overworld(bus)) {
+        const auto* ram = bus->iwram_ptr();
+        const unsigned cursor = read32(ram + 0x7824);
+        const unsigned player = ram[0x2d77];
+        if (cursor >= 0x03000000u && cursor <= 0x03007ff0u && player < 2) {
+            const auto* p = ram + cursor - 0x03000000u;
+            const int world_x = p[4 + player] + 256 * p[2 + player];
+            native_center = std::clamp(world_x -
+                static_cast<int>(read16(bus->io().raw() + 0x14) & 511u), 0, 239);
+            output_center = native_center + native_origin();
+        }
+    }
+    // Keep the closing wipe attached to the map cursor, and the opening wipe
+    // centered in the new canvas. Use the more restrictive edge ratio so a
+    // full native aperture covers the entire target width immediately.
+    int native_radius = 240 - native_center;
+    int output_radius = g_output_width - output_center;
+    if (native_center > 0 && output_center > 0 &&
+        native_center * output_radius < native_radius * output_center) {
+        native_radius = native_center;
+        output_radius = output_center;
+    }
+    const int numerator = (x + native_origin() - output_center) * native_radius;
+    const int offset = numerator / output_radius -
+        (numerator < 0 && numerator % output_radius != 0 ? 1 : 0);
+    *out_x = native_center + offset;
+    return 1;
 }
 
 int tilemap(int bg, int x, int y, std::uint16_t* entry) {
     const auto* bus = gbarecomp::active_bus();
-    if (!entry || !horizontal_level(bus) || y < 0 || y >= 160)
+    if (!entry || y < 0 || y >= 160)
         return gba::kWsTilemapUnavailable;
+    if (overworld(bus)) {
+        if (bg != 1) return gba::kWsTilemapUnavailable;
+        // The map panel has an authentic eight-pixel fringe on each side of
+        // its native viewport. Beyond it use the map's repeating soil texture,
+        // rather than exposing duplicate nodes from the hardware scroll ring.
+        if (x < -8 || x >= 248) {
+            *entry = 0x50feu;
+            return gba::kWsTilemapReplace;
+        }
+        return gba::kWsTilemapKeepWrapped;
+    }
+    if (!horizontal_level(bus)) return gba::kWsTilemapUnavailable;
     // BG0 contains screen-space status text; never repeat it in the margins.
     if (bg == 0) return gba::kWsTilemapUnavailable;
     // These backdrop maps are complete ROM-authored, repeating images, unlike
@@ -37,8 +165,8 @@ int tilemap(int bg, int x, int y, std::uint16_t* entry) {
     if (bg != 1) return gba::kWsTilemapUnavailable;
 
     const auto* ram = bus->iwram_ptr();
-    const int world_x = x + static_cast<int>(read32(ram + 0x3750));
-    const int world_y = y + static_cast<int>(read32(ram + 0x3754));
+    const int world_x = x + display_scroll(bus, 0x3750, 0x14);
+    const int world_y = y + display_scroll(bus, 0x3754, 0x16);
     if (world_x < 0 || world_x >= 4096 || world_y < 0 || world_y >= 1024)
         return gba::kWsTilemapUnavailable;
 
@@ -56,7 +184,8 @@ int tilemap(int bg, int x, int y, std::uint16_t* entry) {
     const unsigned tileset = ram[0x3849];
     if (!rom || bus->rom_size() < 0x124cb0u)
         return gba::kWsTilemapUnavailable;
-    unsigned address = read32(rom + 0x124c64u + tileset * 4u);
+    const auto* pointer = rom + 0x124c64u + tileset * 4u;
+    unsigned address = read16(pointer) | (read16(pointer + 2) << 16);
     // The game's column publisher selects the common extended bank above
     // halfword 0x497 for nonzero tilesets. Entries are raw GBA tilemap words,
     // ordered top-left, bottom-left, top-right, bottom-right.
@@ -72,10 +201,13 @@ int tilemap(int bg, int x, int y, std::uint16_t* entry) {
 void update_extended_view(const gbarecomp::ExtendedViewFrameInfo* frame) {
     const auto* bus = gbarecomp::active_bus();
     const bool field = horizontal_level(bus);
-    gba::g_ws_pillarbox = field ? 0 : 1;
+    const bool map = overworld(bus);
+    if (frame) g_output_width = static_cast<int>(frame->view_width);
+    gba::g_ws_pillarbox = field || map || entering_level(bus) ? 0 : 1;
+    gba::g_ws_window_x_provider = map || entering_level(bus) ? transition_window_x : nullptr;
     gba::g_ws_native_view_left = -1;
     if (field && frame) {
-        const int camera_x = static_cast<int>(read32(bus->iwram_ptr() + 0x3750));
+        const int camera_x = display_scroll(bus, 0x3750, 0x14);
         // At the level's left boundary spend the available width on the real
         // level to the right, rather than exposing negative world coordinates.
         gba::g_ws_native_view_left = std::clamp(camera_x, 0,
@@ -83,13 +215,18 @@ void update_extended_view(const gbarecomp::ExtendedViewFrameInfo* frame) {
     }
 }
 
-void install_extended_view(std::uint32_t, std::uint32_t) {
+void install_extended_view(std::uint32_t left, std::uint32_t right) {
+    g_output_width = static_cast<int>(left + 240 + right);
     gba::g_ws_tilemap_provider = tilemap;
+    gba::g_ws_bg_xy_provider = background_coordinates;
+    gba::g_ws_bg_xy_provider_layers = (1u << 0) | (1u << 2) | (1u << 3);
+    gba::g_ws_obj_attr_x_provider = screen_object_x;
     gba::g_ws_authored_margin_layers = 1;
     gba::g_ws_pillarbox = 1;
     gba::g_ws_pillarbox_left = 0;
     gba::g_ws_pillarbox_right = 0;
     gba::g_ws_native_view_left = -1;
+    gba::g_ws_window_x_provider = nullptr;
     gba::publish_read_only_wide_bg_providers(nullptr, true);
 }
 }  // namespace smb3

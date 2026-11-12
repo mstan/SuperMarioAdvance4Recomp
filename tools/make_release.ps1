@@ -157,9 +157,10 @@ Project: https://github.com/mstan/SuperMarioAdvance4Recomp
 Engine: https://github.com/mstan/gbarecomp
 
 Adaptive Widescreen is enabled for fresh settings and follows the window.
-This experimental mod expands horizontal SMB3 terrain and backdrops; sprite
-spawning and clipping retain native limits. Menus and vertical levels use
-native framing. Disable it from Mods to use the original view throughout.
+This experimental mod expands horizontal SMB3 terrain, backdrops and enemy
+visibility, anchors the HUD, and uses wide stage-entry wipes. Enemy coverage
+is qualified in World 1-1; other stages still need testing. Menus and vertical
+levels use native framing. Disable it from Mods to use the original view.
 "@ | Out-File -LiteralPath (Join-Path $stage 'README.md') -Encoding utf8
 
 $forbidden = Get-ChildItem -LiteralPath $stage -Recurse -File |

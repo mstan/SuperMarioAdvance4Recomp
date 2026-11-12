@@ -6,6 +6,7 @@
 #include "runtime.h"
 #include "runtime_arm.h"
 #include "smb3_extended_view.h"
+#include "smb3_entity_view.h"
 
 #if defined(GBAGAME_RECOMP_UI)
 #include "game_launcher_boot.h"
@@ -80,6 +81,10 @@ int main(int argc, char** argv) {
     }
 
     g_runtime_ram_dispatch_hook = &dispatch_flash_stack_variant;
+    if (!smb3::register_entity_view_state()) {
+        std::fprintf(stderr, "Unable to register the entity-view state provider.\n");
+        return 1;
+    }
     gbarecomp::RunOptions opts;
     opts.launcher_game_version = GBARECOMP_GAME_VERSION;
     opts.builtin_game_name = "Super Mario Advance 4: Super Mario Bros. 3 (USA, Rev 1)";
