@@ -160,6 +160,17 @@ int screen_object_x(int index, std::uint16_t attr0, std::uint16_t attr1,
 int transition_window_x(int x, int, int* out_x) {
     if (!out_x) return 0;
     const auto* bus = gbarecomp::active_bus();
+    if (overworld(bus)) {
+        const auto* io = bus->io().raw();
+        // The world/lives panel reveals BG3 and OBJ inside its authored
+        // rectangle, while BG0-2 and OBJ draw the map outside. Its window
+        // must stay aligned with those native pixels; it is not a wipe.
+        if ((read16(io + 0x48) & 0x3fu) == 0x18u &&
+            (read16(io + 0x4a) & 0x3fu) == 0x17u) {
+            *out_x = x;
+            return 1;
+        }
+    }
     int native_center = 120;
     int output_center = g_output_width / 2;
     if (overworld(bus)) {

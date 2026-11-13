@@ -74,6 +74,17 @@ target_compile_definitions(SuperMarioAdvance4Recomp PRIVATE
     GBARECOMP_WINDOW_TITLE="SuperMarioAdvance4Recomp"
     GBARECOMP_DEFAULT_GAME_CONFIG="game.toml")
 
+enable_testing()
+add_executable(sma4_view_tests
+    tests/extended_view_test.cpp
+    src/smb3_extended_view.cpp
+    "${GBARECOMP_ROOT}/tools/bios_smoke/dispatch_stub.cpp")
+target_include_directories(sma4_view_tests PRIVATE
+    src
+    "${GBARECOMP_ROOT}/src/runtime")
+target_link_gbarecomp_runtime_stack(sma4_view_tests)
+add_test(NAME sma4_view_tests COMMAND sma4_view_tests)
+
 option(GBAGAME_RECOMP_UI "Build the recomp-ui launcher and in-game menu" ON)
 if(GBAGAME_RECOMP_UI)
     if(NOT EXISTS "${RECOMP_UI_ROOT}/recomp_ui.cmake")
