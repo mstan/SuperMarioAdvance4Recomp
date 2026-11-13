@@ -1,4 +1,5 @@
 #include "smb3_extended_view.h"
+#include "smb3_entity_view.h"
 #include "gba_bus.h"
 #include "gba_ppu.h"
 #include "runtime.h"
@@ -17,11 +18,6 @@ void require(bool result, const char* message) {
     std::exit(1);
 }
 }
-namespace smb3 {
-int entity_view_object_x(int, std::uint16_t, std::uint16_t,
-                         std::uint16_t, int*) { return 0; }
-}
-
 int main() {
     auto bus = std::make_unique<gba::GbaBus>();
     gbarecomp::set_active_bus(bus.get());
@@ -99,6 +95,32 @@ int main() {
             entry == 0x1234, "Vertical tilemap used horizontal bank or 256px row stride");
     require(gba::g_ws_tilemap_provider(1, 1024, 0, &entry) == gba::kWsTilemapUnavailable,
             "Vertical tilemap exceeded its four column banks");
+    // Loading states retain wide presentation, but must not inherit the
+    // guest entity/spawn mutations. The real 4B->1E pipe first diverged at
+    // 08049CF6 reading 08155394 in state1D:272 became512-camera_origin.
+    smb3::set_entity_view_enabled(true);
+    for (unsigned orientation : {0u, 0x10u}) {
+        ram[0x3cb3] = orientation;
+        for (unsigned state : {0x19u, 0x1au, 0x1bu, 0x1cu}) {
+            ram[0x3774] = state;
+            std::uint32_t changed = 0;
+            require(smb3::entity_view_read(0x08049cf6, 0x08155394, 2, 272,
+                                           &changed) == 1 && changed == 512,
+                    "Existing gameplay/visible-exit entity coverage was lost");
+        }
+        for (unsigned state : {0x1du, 0x1eu}) {
+            ram[0x3774] = state;
+            require(smb3::level_loaded(bus.get()),
+                    "Loading fade lost presentation readiness");
+            std::uint32_t changed = 0xfeed;
+            require(smb3::entity_view_read(0x08049cf6, 0x08155394, 2, 272,
+                                           &changed) == 0 && changed == 0xfeed,
+                    "Presentation readiness widened loading-time guest spawn reads");
+        }
+    }
+    smb3::set_entity_view_enabled(false);
+    ram[0x3cb3] = 0x10;
+    ram[0x3774] = 0x1a;
     // The real vertical publisher wraps a 240px field unless player+C7 is
     // set. Its backing column banks are not a wider playable room.
     bus->write32(0x03007818, 0x03001000);

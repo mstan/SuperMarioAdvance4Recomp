@@ -78,6 +78,7 @@ enable_testing()
 add_executable(sma4_view_tests
     tests/extended_view_test.cpp
     src/smb3_extended_view.cpp
+    src/smb3_entity_view.cpp
     "${GBARECOMP_ROOT}/tools/bios_smoke/dispatch_stub.cpp")
 target_include_directories(sma4_view_tests PRIVATE
     src
