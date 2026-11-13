@@ -42,12 +42,12 @@ launcher on boot** if you want later launches to go directly into the game.
 - Windowed and fullscreen play with configurable presentation
 - In-game settings menu
 - Cartridge saves and save states
-- Experimental adaptive widescreen for horizontal SMB3 levels, enabled by
+- Experimental adaptive widescreen for horizontal and vertical SMB3 rooms, enabled by
   default for fresh settings. The HUD stays anchored and entry wipes cover
   the wide canvas. Enemy activation and visibility use a fixed wider area,
-  independent of window size. World 1-1 has been checked; other stages and
-  enemy types still need testing. Menus and vertical levels keep native
-  framing. The mod can be disabled in the Mods catalog.
+  independent of window size. World 1-1 and World 5-2's vertical room have
+  targeted checks; other stages and enemy types still need testing. Menus
+  keep native framing. The mod can be disabled in the Mods catalog.
 
 ## Controls
 
