@@ -106,6 +106,8 @@ int main() {
     bus->ewram_ptr()[0x2e000 + 0x00ff] = 3;
     smb3::update_extended_view(&frame);
     require(gba::g_ws_native_view_left == 24, "Cyclic viewport was not centered");
+    require(gba::g_ws_obj_window_x_provider != nullptr,
+            "Cyclic OBJ stencil mapping was not independently enabled");
     for (int x : {-480, -240, 0, 240, 480}) {
         require(gba::g_ws_tilemap_provider(1, x, 0, &entry) == gba::kWsTilemapReplace &&
                 entry == 0x1234, "Cyclic terrain exposed non-playable map columns");
@@ -124,7 +126,8 @@ int main() {
     smb3::update_extended_view(&frame);
     require(gba::g_ws_native_view_left == 0 &&
             gba::g_ws_obj_x_period_provider(4, 96, 32, 0x7400) == 0 &&
-            gba::g_ws_window_x_provider == nullptr,
+            gba::g_ws_window_x_provider == nullptr &&
+            gba::g_ws_obj_window_x_provider == nullptr,
             "Native no-wrap policy was ignored");
     require(gba::g_ws_tilemap_provider(1, 240, 0, &entry) == gba::kWsTilemapReplace &&
             entry == 0x4567, "Noncyclic map was repeated");

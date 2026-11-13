@@ -327,6 +327,7 @@ void update_extended_view(const gbarecomp::ExtendedViewFrameInfo* frame) {
     gba::g_ws_pillarbox = field || map || entering_level(bus) || leaving ? 0 : 1;
     gba::g_ws_window_x_provider = map || entering_level(bus) || periodic_vertical(bus)
         ? transition_window_x : nullptr;
+    gba::g_ws_obj_window_x_provider = periodic_vertical(bus) ? transition_window_x : nullptr;
     gba::g_ws_native_view_left = -1;
     if (field && frame) {
         if (periodic_vertical(bus)) {
@@ -365,6 +366,7 @@ void install_extended_view(std::uint32_t left, std::uint32_t right) {
     gba::g_ws_pillarbox_right = 0;
     gba::g_ws_native_view_left = -1;
     gba::g_ws_window_x_provider = nullptr;
+    gba::g_ws_obj_window_x_provider = nullptr;
     gba::publish_read_only_wide_bg_providers(nullptr, true);
 }
 }  // namespace smb3
