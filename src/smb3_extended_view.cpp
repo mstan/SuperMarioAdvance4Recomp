@@ -56,6 +56,22 @@ bool vertical_level(const gba::GbaBus* bus) {
     return bus->iwram_ptr()[0x3cb3] == 0x10;
 }
 
+bool periodic_vertical(const gba::GbaBus* bus) {
+    if (!level(bus) || !vertical_level(bus)) return false;
+    const auto* ram = bus->iwram_ptr();
+    const unsigned player = read32(ram + 0x7818);
+    // The native vertical OBJ publisher (08042F58) wraps by 240 unless the
+    // player's C7 field disables that policy. Mirror its real eligibility;
+    // header timer bits and the backing map's 256px banks are unrelated.
+    return player >= 0x03000000u && player <= 0x03008000u - 0xc8u &&
+           ram[player - 0x03000000u + 0xc7u] == 0;
+}
+
+int periodic_x(int x) {
+    const int remainder = x % 240;
+    return remainder < 0 ? remainder + 240 : remainder;
+}
+
 bool entering_level(const gba::GbaBus* bus) {
     if (!bus) return false;
     const auto* ram = bus->iwram_ptr();
@@ -139,10 +155,13 @@ int background_coordinates(int bg, int x, int y, int* source_x, int* source_y) {
             mapped -= (g_output_width - 240) / 2;
         if (mapped < 0 || mapped >= 240) return -1;
     } else if ((bg == 2 || bg == 3) && level(bus)) {
-        const int camera = display_scroll(bus, 0x3750, 0x14);
-        // These layers move at half camera speed. Rebase only the camera
-        // contribution, retaining the guest's other scroll/animation offsets.
-        mapped += origin - (half_scroll(camera) - half_scroll(camera - origin));
+        if (periodic_vertical(bus)) mapped = periodic_x(x);
+        else {
+            const int camera = display_scroll(bus, 0x3750, 0x14);
+            // These layers move at half camera speed. Rebase only the camera
+            // contribution, retaining the guest's other scroll/animation offsets.
+            mapped += origin - (half_scroll(camera) - half_scroll(camera - origin));
+        }
     } else return 0;
     if (mapped == x) return 0;
     *source_x = mapped;
@@ -150,14 +169,26 @@ int background_coordinates(int bg, int x, int y, int* source_x, int* source_y) {
     return 1;
 }
 
-int screen_object_x(int index, std::uint16_t attr0, std::uint16_t attr1,
-                    std::uint16_t attr2, int* out_x) {
-    const auto* bus = gbarecomp::active_bus();
-    if (out_x && (level(bus) || overworld(bus)) && index >= 0 && index < 3 &&
+bool hud_card(int index, std::uint16_t attr0, std::uint16_t attr1,
+              std::uint16_t attr2) {
+    return index >= 0 && index < 3 &&
         (attr0 & 0xc3ffu) == 143u &&
         (attr1 & 0xfe00u) == 0x4000u &&
         (attr1 & 511u) == 189u + 14u * static_cast<unsigned>(index) &&
-        (attr2 & 0xf000u) == 0x8000u) {
+        (attr2 & 0xf000u) == 0x8000u;
+}
+
+int object_x_period(int index, std::uint16_t attr0, std::uint16_t attr1,
+                    std::uint16_t attr2) {
+    return periodic_vertical(gbarecomp::active_bus()) &&
+           !hud_card(index, attr0, attr1, attr2) ? 240 : 0;
+}
+
+int screen_object_x(int index, std::uint16_t attr0, std::uint16_t attr1,
+                    std::uint16_t attr2, int* out_x) {
+    const auto* bus = gbarecomp::active_bus();
+    if (out_x && (level(bus) || overworld(bus)) &&
+        hud_card(index, attr0, attr1, attr2)) {
         // Slot geometry identifies the HUD card, including its filled faces.
         const int inset = overworld(bus) ? (g_output_width - 240) / 2
                                          : g_output_width - 240;
@@ -170,6 +201,10 @@ int screen_object_x(int index, std::uint16_t attr0, std::uint16_t attr1,
 int transition_window_x(int x, int, int* out_x) {
     if (!out_x) return 0;
     const auto* bus = gbarecomp::active_bus();
+    if (periodic_vertical(bus)) {
+        *out_x = periodic_x(x);
+        return 1;
+    }
     if (overworld(bus)) {
         const auto* io = bus->io().raw();
         // The world/lives panel reveals BG3 and OBJ inside its authored
@@ -244,7 +279,8 @@ int tilemap(int bg, int x, int y, std::uint16_t* entry) {
     }
 
     const auto* ram = bus->iwram_ptr();
-    const int world_x = x + display_scroll(bus, 0x3750, 0x14);
+    const int world_x = (periodic_vertical(bus) ? periodic_x(x) : x) +
+                        display_scroll(bus, 0x3750, 0x14);
     const int world_y = y + display_scroll(bus, 0x3754, 0x16);
     const bool vertical = vertical_level(bus);
     const int bottom = vertical ? (std::min<unsigned>(ram[0x3ae6], 15u) + 1) * 240 : 1024;
@@ -289,9 +325,16 @@ void update_extended_view(const gbarecomp::ExtendedViewFrameInfo* frame) {
         bus->iwram_ptr()[0x3774] >= 0x1b && bus->iwram_ptr()[0x3774] <= 0x1e;
     if (frame) g_output_width = static_cast<int>(frame->view_width);
     gba::g_ws_pillarbox = field || map || entering_level(bus) || leaving ? 0 : 1;
-    gba::g_ws_window_x_provider = map || entering_level(bus) ? transition_window_x : nullptr;
+    gba::g_ws_window_x_provider = map || entering_level(bus) || periodic_vertical(bus)
+        ? transition_window_x : nullptr;
     gba::g_ws_native_view_left = -1;
     if (field && frame) {
+        if (periodic_vertical(bus)) {
+            // A cyclic field has no left/right boundary. Keep the canonical
+            // viewport centered and continue its actual 240px world period.
+            gba::g_ws_native_view_left = static_cast<int>(frame->extra_left);
+            return;
+        }
         const int camera_x = display_scroll(bus, 0x3750, 0x14);
         // At the level's left boundary spend the available width on the real
         // level to the right, rather than exposing negative world coordinates.
@@ -315,6 +358,7 @@ void install_extended_view(std::uint32_t left, std::uint32_t right) {
     gba::g_ws_bg_xy_provider = background_coordinates;
     gba::g_ws_bg_xy_provider_layers = (1u << 0) | (1u << 2) | (1u << 3);
     gba::g_ws_obj_attr_x_provider = screen_object_x;
+    gba::g_ws_obj_x_period_provider = object_x_period;
     gba::g_ws_authored_margin_layers = 1;
     gba::g_ws_pillarbox = 1;
     gba::g_ws_pillarbox_left = 0;

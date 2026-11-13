@@ -3,7 +3,7 @@ id = "sma4.enhancement.adaptive-view"
 version = "1.0.0"
 name = "Super Mario Advance 4 Experimental Widescreen"
 author = "mstan"
-description = "Experimental SMB3 view with expanded horizontal and vertical terrain, wider enemy visibility, anchored HUD and widescreen entry wipes. Stage coverage is partial; menus keep native framing."
+description = "Experimental SMB3 view with expanded horizontal terrain, cyclic vertical views, wider enemy visibility, anchored HUD and widescreen entry wipes. Stage coverage is partial; menus keep native framing."
 license = "MIT"
 resolver = "declarative"
 save_compatibility = "shared"
@@ -15,7 +15,7 @@ rom_sha1 = "532f3307021637474b6dd37da059ca360f612337"
 [[feature]]
 id = "adaptive-view"
 name = "Adaptive Widescreen (Experimental)"
-description = "Fit horizontal and vertical rooms to the window with wider enemy visibility and an anchored HUD. Experimental: World 1-1 and the World 5-2 vertical room have targeted checks; other stages still need testing. Menus keep native framing."
+description = "Fit the view to the window with wider enemy visibility and an anchored HUD. Cyclic vertical rooms repeat their original field in the margins. Experimental: stage coverage is partial. Menus keep native framing."
 group = "Display"
 default_enabled = true
 

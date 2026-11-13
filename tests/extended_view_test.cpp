@@ -99,6 +99,35 @@ int main() {
             entry == 0x1234, "Vertical tilemap used horizontal bank or 256px row stride");
     require(gba::g_ws_tilemap_provider(1, 1024, 0, &entry) == gba::kWsTilemapUnavailable,
             "Vertical tilemap exceeded its four column banks");
+    // The real vertical publisher wraps a 240px field unless player+C7 is
+    // set. Its backing column banks are not a wider playable room.
+    bus->write32(0x03007818, 0x03001000);
+    bus->ewram_ptr()[0x2e000 + 0x00f0] = 2;
+    bus->ewram_ptr()[0x2e000 + 0x00ff] = 3;
+    smb3::update_extended_view(&frame);
+    require(gba::g_ws_native_view_left == 24, "Cyclic viewport was not centered");
+    for (int x : {-480, -240, 0, 240, 480}) {
+        require(gba::g_ws_tilemap_provider(1, x, 0, &entry) == gba::kWsTilemapReplace &&
+                entry == 0x1234, "Cyclic terrain exposed non-playable map columns");
+        source_x = -1;
+        const int action = gba::g_ws_bg_xy_provider(2, x, 80, &source_x, &source_y);
+        require((x == 0 ? action == 0 : action == 1 && source_x == 0),
+                "Cyclic backdrop used a different period");
+        require(gba::g_ws_window_x_provider(x, 80, &mapped) == 1 && mapped == 0,
+                "Cyclic window did not follow canonical terrain");
+    }
+    require(gba::g_ws_obj_x_period_provider(4, 96, 32, 0x7400) == 240,
+            "Cyclic world sprite was not repeated");
+    require(gba::g_ws_obj_x_period_provider(0, 143, 0x4000 | 189, 0x8000) == 0,
+            "Cyclic view repeated a HUD card");
+    ram[0x10c7] = 1;
+    smb3::update_extended_view(&frame);
+    require(gba::g_ws_native_view_left == 0 &&
+            gba::g_ws_obj_x_period_provider(4, 96, 32, 0x7400) == 0 &&
+            gba::g_ws_window_x_provider == nullptr,
+            "Native no-wrap policy was ignored");
+    require(gba::g_ws_tilemap_provider(1, 240, 0, &entry) == gba::kWsTilemapReplace &&
+            entry == 0x4567, "Noncyclic map was repeated");
     bus->write16(0x04000016, 480);
     bus->write16(0x03003754, 480);
     require(gba::g_ws_tilemap_provider(1, 256, 0, &entry) == gba::kWsTilemapUnavailable,
