@@ -56,7 +56,11 @@ std::uint32_t u32(const std::uint8_t* p) {
 }
 unsigned u16(const std::uint8_t* p) { return p[0] | (unsigned(p[1]) << 8); }
 bool field(const gba::GbaBus* bus) {
-    return enabled && horizontal_level_loaded(bus);
+    if (!enabled || !level_loaded(bus)) return false;
+    // Wide loading fades are presentation-ready, but retain the original
+    // entity simulation phases. Mutating spawn limits in 1D/1E changes the
+    // native pipe loader even while the visible image remains identical.
+    return bus->iwram_ptr()[0x3774] <= 0x1c;
 }
 int camera(const gba::GbaBus* bus) {
     return static_cast<std::int16_t>(u16(bus->iwram_ptr() + 0x3750));

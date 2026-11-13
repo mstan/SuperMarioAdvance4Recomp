@@ -77,7 +77,7 @@ New-Item -ItemType Directory -Force -Path $out | Out-Null
     "-DRECOMP_UI_ROOT=$uiRoot" `
     "-DGBARECOMP_RUNTIME_UI_ROOT=$uiRoot" `
     "-DGBARECOMP_GENERATED_BIOS_DIR=$biosGenerated" `
-    "-DCMAKE_CXX_FLAGS_RELEASE=-O1 -DNDEBUG" `
+    "-DCMAKE_CXX_FLAGS_RELEASE=-O3 -DNDEBUG" `
     -DGBARECOMP_BUILD_ORACLE=OFF `
     -DGBARECOMP_MINGW_PREFIX_UNIX='/c/msys64/mingw64' `
     -DSDL2_INCLUDE_DIR='C:/msys64/mingw64/include/SDL2' `
@@ -111,6 +111,15 @@ if (Test-Path -LiteralPath $stage) {
 }
 New-Item -ItemType Directory -Force -Path $stage | Out-Null
 Copy-Item -LiteralPath $exe -Destination $stage
+$hqx = Join-Path $build 'gbarecomp-hqx.dll'
+$hqxSource = Join-Path $build 'third-party/hqx'
+if (-not (Test-Path -LiteralPath $hqx) -or
+    -not (Test-Path -LiteralPath (Join-Path $hqxSource 'COPYING'))) {
+    throw 'The HQ2x shared library and corresponding source are required.'
+}
+Copy-Item -LiteralPath $hqx -Destination $stage
+New-Item -ItemType Directory -Path (Join-Path $stage 'third-party') | Out-Null
+Copy-Item -LiteralPath $hqxSource -Destination (Join-Path $stage 'third-party') -Recurse
 
 foreach ($dll in $dlls) {
     $source = Join-Path $mingwBin $dll
@@ -163,13 +172,32 @@ is qualified in World 1-1; other stages still need testing. Menus and vertical
 levels use native framing. Disable it from Mods to use the original view.
 "@ | Out-File -LiteralPath (Join-Path $stage 'README.md') -Encoding utf8
 
+# Preserve only the authored runtime display model, not development metadata.
+$sourceToml = [IO.File]::ReadAllText((Join-Path $root 'game.toml'))
+$video = [regex]::Match($sourceToml, '(?ms)^\[video\]\s*\r?\n(.*?)(?=^\[|\z)')
+$screen = [regex]::Match($video.Groups[1].Value,
+    '(?m)^\s*screen\s*=\s*"([A-Za-z0-9_-]+)"\s*(?:#.*)?$')
+# No authored video.screen retains the runner's raw default.
+$screenName = if ($screen.Success) { $screen.Groups[1].Value } else { 'raw' }
+$runtimeConfig = "[video]`nscreen = `"$screenName`"`n"
+[IO.File]::WriteAllText((Join-Path $stage 'game.toml'), $runtimeConfig)
+$fontNotices = @('LatoLatin-OFL.txt', 'NotoSansSymbols2-OFL.txt', 'OpenMoji-LICENSE.txt')
+$fontNoticeStage = Join-Path $stage 'licenses/fonts'
+New-Item -ItemType Directory -Force -Path $fontNoticeStage | Out-Null
+foreach ($notice in $fontNotices) {
+    Copy-Item -LiteralPath (Join-Path $root "tools/release-licenses/$notice") -Destination $fontNoticeStage
+}
+& (Get-Command python.exe).Source (Join-Path $root 'tools/collect_licenses.py') `
+    $engine $uiRoot (Join-Path $stage 'licenses') --mingw (Split-Path $mingwBin)
+if ($LASTEXITCODE -ne 0) { throw 'Dependency notice staging failed.' }
+
 $forbidden = Get-ChildItem -LiteralPath $stage -Recurse -File |
     Where-Object {
         $_.Extension.ToLowerInvariant() -in @(
             '.gba', '.agb', '.bin', '.sav', '.srm', '.apk'
         ) -or
         $_.Name -in @(
-            'game.toml', 'rom.cfg', 'bios.cfg', 'config.ini',
+            'rom.cfg', 'bios.cfg', 'config.ini',
             'keybinds.ini', 'mods.ini', 'state.toml'
         )
     }
@@ -230,6 +258,16 @@ try {
     if ($rzBad.Count -ne 0) {
         throw "ZIP contains non-portable entry names: $(
             ($rzBad | ForEach-Object FullName) -join ', ')"
+    }
+    $runtimeEntry = $rzArchive.GetEntry('game.toml')
+    if ($null -eq $runtimeEntry) { throw 'Runtime display config missing from ZIP.' }
+    $reader = [IO.StreamReader]::new($runtimeEntry.Open(), [Text.Encoding]::UTF8)
+    try { $packagedConfig = $reader.ReadToEnd() } finally { $reader.Dispose() }
+    if ($packagedConfig -cne $runtimeConfig) { throw 'ZIP display config differs.' }
+    foreach ($notice in $fontNotices) {
+        if ($null -eq $rzArchive.GetEntry("licenses/fonts/$notice")) {
+            throw "Bundled font notice missing: $notice"
+        }
     }
     if ($rzArchive.Entries.Count -ne $rzFiles.Count) {
         throw "ZIP entry count mismatch: expected $($rzFiles.Count), got $(
