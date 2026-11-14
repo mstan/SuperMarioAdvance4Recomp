@@ -20,7 +20,7 @@ if(NOT EXISTS "${GBARECOMP_ROOT}/CMakeLists.txt")
 endif()
 
 set(GBARECOMP_ENABLE_MODS ON CACHE BOOL "Enable the title mod catalog" FORCE)
-set(GBARECOMP_ENABLE_HQ2X ON CACHE BOOL "Include the optional HQ2x display mod" FORCE)
+set(GBARECOMP_ENABLE_HQ2X ON CACHE BOOL "Include the optional HQx display mod" FORCE)
 add_subdirectory("${GBARECOMP_ROOT}" gbarecomp_build EXCLUDE_FROM_ALL)
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/generated/recompiled.cpp")
     message(FATAL_ERROR
@@ -38,6 +38,9 @@ add_executable(SuperMarioAdvance4Recomp
     src/mods/smb3_adaptive_view_plugin.cpp
     ${GAME_GENERATED_SOURCES})
 gbarecomp_stage_hq2x(SuperMarioAdvance4Recomp)
+if(TARGET gbarecomp_hqx)
+    target_sources(SuperMarioAdvance4Recomp PRIVATE src/mods/hqx_plugin.cpp)
+endif()
 
 set(GAME_RECOMPILED_SOURCES ${GAME_GENERATED_SOURCES})
 list(FILTER GAME_RECOMPILED_SOURCES INCLUDE REGEX

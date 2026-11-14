@@ -115,7 +115,7 @@ $hqx = Join-Path $build 'gbarecomp-hqx.dll'
 $hqxSource = Join-Path $build 'third-party/hqx'
 if (-not (Test-Path -LiteralPath $hqx) -or
     -not (Test-Path -LiteralPath (Join-Path $hqxSource 'COPYING'))) {
-    throw 'The HQ2x shared library and corresponding source are required.'
+    throw 'The HQx shared library and corresponding source are required.'
 }
 Copy-Item -LiteralPath $hqx -Destination $stage
 New-Item -ItemType Directory -Path (Join-Path $stage 'third-party') | Out-Null
@@ -156,7 +156,8 @@ affiliation with or endorsement from Nintendo.
 3. Select your legally obtained matching ROM.
    Expected SHA-1: $expectedSha1
 4. Select your legally obtained retail 16 KiB gba_bios.bin.
-5. Select PLAY.
+5. Select PLAY. Pixel Smoothing is optional and off by default; enable it under
+   Mods and select HQ2x, HQ3x or HQ4x before Play if desired.
 
 The ROM and retail GBA BIOS are not included. Supply your own dumps.
 Interactive play has no implicit runtime step limit; only an explicit

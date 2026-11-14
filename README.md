@@ -35,6 +35,11 @@ launcher on boot** if you want later launches to go directly into the game.
 
 ## Features
 
+For smoother pixel edges, enable **Pixel Smoothing** in the launcher's **Mods**
+page and select HQ2x, HQ3x or HQ4x before Play. It is disabled by default;
+existing HQ2x selections keep HQ2x. The replaceable filter library and its
+LGPL source are included under `third-party/hqx`.
+
 - Native Windows x64 application
 - ROM and BIOS setup through the shared
   [recomp-ui](https://github.com/mstan/recomp-ui) launcher
