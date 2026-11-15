@@ -29,7 +29,7 @@ if (-not $GeneratedBiosDir) {
     $GeneratedBiosDir = Join-Path $engine 'src/runtime/generated_bios'
 }
 $biosGenerated = (Resolve-Path -LiteralPath $GeneratedBiosDir).Path
-$build = Join-Path $root $BuildDir
+$build = if ([IO.Path]::IsPathRooted($BuildDir)) { [IO.Path]::GetFullPath($BuildDir) } else { Join-Path $root $BuildDir }
 $out = Join-Path $root 'release-stage'
 $target = 'SuperMarioAdvance4Recomp'
 $stageName = "$target-windows-x64-v$Version"
