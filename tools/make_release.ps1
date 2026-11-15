@@ -29,7 +29,7 @@ if (-not $GeneratedBiosDir) {
     $GeneratedBiosDir = Join-Path $engine 'src/runtime/generated_bios'
 }
 $biosGenerated = (Resolve-Path -LiteralPath $GeneratedBiosDir).Path
-$build = Join-Path $root $BuildDir
+$build = if ([IO.Path]::IsPathRooted($BuildDir)) { [IO.Path]::GetFullPath($BuildDir) } else { Join-Path $root $BuildDir }
 $out = Join-Path $root 'release-stage'
 $target = 'SuperMarioAdvance4Recomp'
 $stageName = "$target-windows-x64-v$Version"
@@ -115,7 +115,7 @@ $hqx = Join-Path $build 'gbarecomp-hqx.dll'
 $hqxSource = Join-Path $build 'third-party/hqx'
 if (-not (Test-Path -LiteralPath $hqx) -or
     -not (Test-Path -LiteralPath (Join-Path $hqxSource 'COPYING'))) {
-    throw 'The HQ2x shared library and corresponding source are required.'
+    throw 'The HQx shared library and corresponding source are required.'
 }
 Copy-Item -LiteralPath $hqx -Destination $stage
 New-Item -ItemType Directory -Path (Join-Path $stage 'third-party') | Out-Null
@@ -156,7 +156,8 @@ affiliation with or endorsement from Nintendo.
 3. Select your legally obtained matching ROM.
    Expected SHA-1: $expectedSha1
 4. Select your legally obtained retail 16 KiB gba_bios.bin.
-5. Select PLAY.
+5. Select PLAY. Pixel Smoothing is optional and off by default; enable it under
+   Mods and select HQ2x, HQ3x or HQ4x before Play if desired.
 
 The ROM and retail GBA BIOS are not included. Supply your own dumps.
 Interactive play has no implicit runtime step limit; only an explicit
@@ -190,6 +191,16 @@ foreach ($notice in $fontNotices) {
 & (Get-Command python.exe).Source (Join-Path $root 'tools/collect_licenses.py') `
     $engine $uiRoot (Join-Path $stage 'licenses') --mingw (Split-Path $mingwBin)
 if ($LASTEXITCODE -ne 0) { throw 'Dependency notice staging failed.' }
+
+# TinyCC's bundled usage files refer to COPYING beside the executable.
+$tinyCcLicense = Join-Path $stage 'licenses/TinyCC/COPYING'
+if ((Get-FileHash -LiteralPath $tinyCcLicense -Algorithm SHA256).Hash -ne
+        '512d2d21b6b3384ba64781abb0208a1b87740bc31e2df48e2b206ddb7e4d5779') {
+    throw 'TinyCC 0.9.27 license checksum differs.'
+}
+Copy-Item -LiteralPath $tinyCcLicense -Destination (Join-Path $stage 'overlay_toolchain/tcc/COPYING')
+
+
 
 $forbidden = Get-ChildItem -LiteralPath $stage -Recurse -File |
     Where-Object {
