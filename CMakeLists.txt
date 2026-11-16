@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(SuperMarioAdvance4Recomp VERSION 0.0.7 LANGUAGES C CXX)
+project(SuperMarioAdvance4Recomp VERSION 0.0.8 LANGUAGES C CXX)
 set(GAME_BUILD_VERSION "${PROJECT_VERSION}" CACHE STRING "Packaged game version")
 
 set(CMAKE_C_STANDARD 11)
@@ -19,6 +19,10 @@ if(NOT EXISTS "${GBARECOMP_ROOT}/CMakeLists.txt")
         "Configure with -DGBARECOMP_ROOT=<path> if the local worktree link is absent.")
 endif()
 
+# Desktop packages provide libarchive; unsupported/mobile builds retain raw input.
+if(WIN32 OR (UNIX AND NOT ANDROID AND NOT EMSCRIPTEN))
+    set(GBARECOMP_ROM_ARCHIVES ON CACHE BOOL "Read ZIP/RAR/7z ROM containers")
+endif()
 set(GBARECOMP_ENABLE_MODS ON CACHE BOOL "Enable the title mod catalog" FORCE)
 set(GBARECOMP_ENABLE_HQ2X ON CACHE BOOL "Include the optional HQx display mod" FORCE)
 add_subdirectory("${GBARECOMP_ROOT}" gbarecomp_build EXCLUDE_FROM_ALL)

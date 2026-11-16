@@ -89,6 +89,7 @@ int main(int argc, char** argv) {
     opts.launcher_game_version = GBARECOMP_GAME_VERSION;
     opts.builtin_game_name = "Super Mario Advance 4: Super Mario Bros. 3 (USA, Rev 1)";
     opts.builtin_rom_sha1 = "532f3307021637474b6dd37da059ca360f612337";
+    opts.enable_rom_archives = true;
     opts.mod_game_id = "super-mario-advance-4-us-rev1";
     opts.mod_owns_adaptive_view = true;
     opts.max_view_width = 480;

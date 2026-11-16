@@ -11,6 +11,7 @@ param(
     [string]$GbarecompRoot = '',
     [string]$RecompUiRoot = '',
     [string]$GeneratedBiosDir = '',
+    [string]$LibArchiveRoot = 'C:/msys64/mingw64',
     [ValidateRange(1, 32)][int]$Jobs = 4
 )
 
@@ -25,6 +26,7 @@ if (-not $GbarecompRoot) { $GbarecompRoot = Join-Path $root 'gbarecomp' }
 if (-not $RecompUiRoot) { $RecompUiRoot = Join-Path $root 'recomp-ui' }
 $engine = (Resolve-Path -LiteralPath $GbarecompRoot).Path
 $uiRoot = (Resolve-Path -LiteralPath $RecompUiRoot).Path
+$archiveRoot = (Resolve-Path -LiteralPath $LibArchiveRoot).Path
 if (-not $GeneratedBiosDir) {
     $GeneratedBiosDir = Join-Path $engine 'src/runtime/generated_bios'
 }
@@ -40,7 +42,15 @@ $dlls = @(
     'SDL2.dll',
     'libgcc_s_seh-1.dll',
     'libstdc++-6.dll',
-    'libwinpthread-1.dll'
+    'libwinpthread-1.dll',
+    'libarchive-13.dll',
+    'libb2-1.dll',
+    'libbz2-1.dll',
+    'libiconv-2.dll',
+    'liblz4.dll',
+    'liblzma-5.dll',
+    'zlib1.dll',
+    'libzstd.dll'
 )
 
 foreach ($required in @(
@@ -79,6 +89,9 @@ New-Item -ItemType Directory -Force -Path $out | Out-Null
     "-DGBARECOMP_GENERATED_BIOS_DIR=$biosGenerated" `
     "-DCMAKE_CXX_FLAGS_RELEASE=-O3 -DNDEBUG" `
     -DGBARECOMP_BUILD_ORACLE=OFF `
+    -DGBARECOMP_ROM_ARCHIVES=ON `
+    "-DLibArchive_INCLUDE_DIR=$archiveRoot/include" `
+    "-DLibArchive_LIBRARY=$archiveRoot/lib/libarchive.dll.a" `
     -DGBARECOMP_MINGW_PREFIX_UNIX='/c/msys64/mingw64' `
     -DSDL2_INCLUDE_DIR='C:/msys64/mingw64/include/SDL2' `
     -DSDL2_LIBRARY='C:/msys64/mingw64/lib/libSDL2.dll.a'
@@ -122,7 +135,8 @@ New-Item -ItemType Directory -Path (Join-Path $stage 'third-party') | Out-Null
 Copy-Item -LiteralPath $hqxSource -Destination (Join-Path $stage 'third-party') -Recurse
 
 foreach ($dll in $dlls) {
-    $source = Join-Path $mingwBin $dll
+    $source = Join-Path $archiveRoot "bin/$dll"
+    if (-not (Test-Path -LiteralPath $source)) { $source = Join-Path $mingwBin $dll }
     if (-not (Test-Path -LiteralPath $source)) {
         throw "Runtime DLL is missing: $source"
     }
@@ -153,7 +167,9 @@ affiliation with or endorsement from Nintendo.
 
 1. Extract the entire folder.
 2. Run $target.exe.
-3. Select your legally obtained matching ROM.
+3. Select your legally obtained matching ROM (.gba) or its ZIP, RAR or 7z archive.
+   Archives must be unencrypted and single-part. The matching ROM is selected
+   automatically; no files are extracted to disk.
    Expected SHA-1: $expectedSha1
 4. Select your legally obtained retail 16 KiB gba_bios.bin.
 5. Select PLAY. Pixel Smoothing is optional and off by default; enable it under
@@ -189,7 +205,7 @@ foreach ($notice in $fontNotices) {
     Copy-Item -LiteralPath (Join-Path $root "tools/release-licenses/$notice") -Destination $fontNoticeStage
 }
 & (Get-Command python.exe).Source (Join-Path $root 'tools/collect_licenses.py') `
-    $engine $uiRoot (Join-Path $stage 'licenses') --mingw (Split-Path $mingwBin)
+    $engine $uiRoot (Join-Path $stage 'licenses') --mingw (Split-Path $mingwBin) --archive-root $archiveRoot
 if ($LASTEXITCODE -ne 0) { throw 'Dependency notice staging failed.' }
 
 # TinyCC's bundled usage files refer to COPYING beside the executable.
