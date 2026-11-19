@@ -12,7 +12,11 @@ param(
     [string]$RecompUiRoot = '',
     [string]$GeneratedBiosDir = '',
     [string]$LibArchiveRoot = 'C:/msys64/mingw64',
-    [ValidateRange(1, 32)][int]$Jobs = 4
+    [ValidateRange(1, 32)][int]$Jobs = 4,
+    # Also package SuperMarioAdvance4VCRecomp (requires a pinned game_vc.toml
+    # and tools\regen.ps1 -Variant vc). Players supply the stock ROM and the
+    # VC Edition .xdelta themselves; neither is ever packaged.
+    [switch]$IncludeVC
 )
 
 $ErrorActionPreference = 'Stop'
@@ -34,6 +38,22 @@ $biosGenerated = (Resolve-Path -LiteralPath $GeneratedBiosDir).Path
 $build = if ([IO.Path]::IsPathRooted($BuildDir)) { [IO.Path]::GetFullPath($BuildDir) } else { Join-Path $root $BuildDir }
 $out = Join-Path $root 'release-stage'
 $target = 'SuperMarioAdvance4Recomp'
+$vcTarget = 'SuperMarioAdvance4VCRecomp'
+$targets = @($target)
+if ($IncludeVC) {
+    $vcToml = [IO.File]::ReadAllText((Join-Path $root 'game_vc.toml'))
+    $vcIdentity = [regex]::Match($vcToml, '(?ms)^\[identity\]\s*\r?\nsha1\s*=\s*"([0-9a-f]{40})"')
+    if (-not $vcIdentity.Success) {
+        throw 'game_vc.toml is unpinned. Run tools\vc_edition.py pin first.'
+    }
+    $vcSha1 = $vcIdentity.Groups[1].Value
+    $vcGenerated = @(Get-ChildItem -LiteralPath (Join-Path $root 'generated_vc') `
+        -Filter 'recompiled_*.cpp' -File -ErrorAction SilentlyContinue)
+    if ($vcGenerated.Count -eq 0) {
+        throw 'VC Edition guest shards are missing. Run tools\regen.ps1 -Variant vc first.'
+    }
+    $targets += $vcTarget
+}
 $stageName = "$target-windows-x64-v$Version"
 $stage = Join-Path $out $stageName
 $zip = Join-Path $out "$stageName.zip"
@@ -97,15 +117,19 @@ New-Item -ItemType Directory -Force -Path $out | Out-Null
     -DSDL2_LIBRARY='C:/msys64/mingw64/lib/libSDL2.dll.a'
 if ($LASTEXITCODE -ne 0) { throw "Release configure failed ($LASTEXITCODE)." }
 
-& cmake --build $build --target $target --parallel $Jobs
+& cmake --build $build --target @targets --parallel $Jobs
 if ($LASTEXITCODE -ne 0) { throw "Release build failed ($LASTEXITCODE)." }
 
-$exe = Join-Path $build "$target.exe"
-if (-not (Test-Path -LiteralPath $exe)) {
-    throw "Expected executable is missing: $exe"
+$exes = @()
+foreach ($t in $targets) {
+    $exe = Join-Path $build "$t.exe"
+    if (-not (Test-Path -LiteralPath $exe)) {
+        throw "Expected executable is missing: $exe"
+    }
+    & (Join-Path $mingwBin 'strip.exe') $exe
+    if ($LASTEXITCODE -ne 0) { throw "strip failed ($LASTEXITCODE)." }
+    $exes += $exe
 }
-& (Join-Path $mingwBin 'strip.exe') $exe
-if ($LASTEXITCODE -ne 0) { throw "strip failed ($LASTEXITCODE)." }
 
 if (Test-Path -LiteralPath $stage) {
     $resolvedStage = (Resolve-Path -LiteralPath $stage).Path
@@ -123,7 +147,7 @@ if (Test-Path -LiteralPath $stage) {
     Remove-Item -LiteralPath $resolvedStage -Recurse
 }
 New-Item -ItemType Directory -Force -Path $stage | Out-Null
-Copy-Item -LiteralPath $exe -Destination $stage
+foreach ($exe in $exes) { Copy-Item -LiteralPath $exe -Destination $stage }
 $hqx = Join-Path $build 'gbarecomp-hqx.dll'
 $hqxSource = Join-Path $build 'third-party/hqx'
 if (-not (Test-Path -LiteralPath $hqx) -or
@@ -154,6 +178,25 @@ Copy-Item -LiteralPath (Join-Path $root 'mods/preloaded') -Destination (Join-Pat
     -Toolchain (Join-Path $stage 'overlay_toolchain') -EngineRoot $engine -CacheDir (Join-Path $build 'release-toolchain-cache')
 if ($LASTEXITCODE -ne 0) {
     throw "Overlay toolchain staging failed ($LASTEXITCODE)."
+}
+
+$vcReadme = ''
+if ($IncludeVC) {
+    $vcReadme = @"
+
+## VC Edition (e-Reader levels)
+
+$vcTarget.exe runs the "VC Edition" patch, which restores the content that
+originally required the Nintendo e-Reader. It is not included: patch your own
+stock ROM with SMA4_USA_Australia_Rev_1_to_USA_VC_Edition.xdelta.
+
+1. Run $vcTarget.exe and select the patched ROM (8 MiB) and your BIOS.
+   Only this exact patch release is accepted (SHA-1: $vcSha1).
+2. Select PLAY. On the SMB3 file screen, Level Card opens World-e.
+
+The VC Edition keeps its own save (saves/super_mario_advance_4_usa_vc.sav)
+and launcher settings (config_vc.ini).
+"@
 }
 
 @"
@@ -187,6 +230,7 @@ This experimental mod expands horizontal SMB3 terrain, backdrops and enemy
 visibility, anchors the HUD, and uses wide stage-entry wipes. Enemy coverage
 is qualified in World 1-1; other stages still need testing. Menus and vertical
 levels use native framing. Disable it from Mods to use the original view.
+$vcReadme
 "@ | Out-File -LiteralPath (Join-Path $stage 'README.md') -Encoding utf8
 
 # Preserve only the authored runtime display model, not development metadata.
@@ -198,6 +242,11 @@ $screen = [regex]::Match($video.Groups[1].Value,
 $screenName = if ($screen.Success) { $screen.Groups[1].Value } else { 'raw' }
 $runtimeConfig = "[video]`nscreen = `"$screenName`"`n"
 [IO.File]::WriteAllText((Join-Path $stage 'game.toml'), $runtimeConfig)
+if ($IncludeVC) {
+    # The VC build names game_vc.toml explicitly so it never reads the stock
+    # config; ship the same display-only model for it.
+    [IO.File]::WriteAllText((Join-Path $stage 'game_vc.toml'), $runtimeConfig)
+}
 $fontNotices = @('LatoLatin-OFL.txt', 'NotoSansSymbols2-OFL.txt', 'OpenMoji-LICENSE.txt')
 $fontNoticeStage = Join-Path $stage 'licenses/fonts'
 New-Item -ItemType Directory -Force -Path $fontNoticeStage | Out-Null
@@ -221,10 +270,10 @@ Copy-Item -LiteralPath $tinyCcLicense -Destination (Join-Path $stage 'overlay_to
 $forbidden = Get-ChildItem -LiteralPath $stage -Recurse -File |
     Where-Object {
         $_.Extension.ToLowerInvariant() -in @(
-            '.gba', '.agb', '.bin', '.sav', '.srm', '.apk'
+            '.gba', '.agb', '.bin', '.sav', '.srm', '.apk', '.xdelta', '.vcdiff'
         ) -or
         $_.Name -in @(
-            'rom.cfg', 'bios.cfg', 'config.ini',
+            'rom.cfg', 'bios.cfg', 'config.ini', 'config_vc.ini',
             'keybinds.ini', 'mods.ini', 'state.toml'
         )
     }
@@ -291,6 +340,9 @@ try {
     $reader = [IO.StreamReader]::new($runtimeEntry.Open(), [Text.Encoding]::UTF8)
     try { $packagedConfig = $reader.ReadToEnd() } finally { $reader.Dispose() }
     if ($packagedConfig -cne $runtimeConfig) { throw 'ZIP display config differs.' }
+    if ($IncludeVC -and $null -eq $rzArchive.GetEntry('game_vc.toml')) {
+        throw 'VC Edition display config missing from ZIP.'
+    }
     foreach ($notice in $fontNotices) {
         if ($null -eq $rzArchive.GetEntry("licenses/fonts/$notice")) {
             throw "Bundled font notice missing: $notice"

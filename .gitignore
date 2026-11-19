@@ -2,11 +2,15 @@
 roms/
 *.gba
 *.GBA
+*.xdelta
+*.vcdiff
 
 # Generated translations are derived from the user's ROM. Keep only the
 # placeholder/documentation file.
 generated/*
 !generated/README.md
+generated_vc/*
+!generated_vc/README.md
 
 # Build and runtime output.
 build/
@@ -38,7 +42,9 @@ _*
 # Local path/config caches.
 bios.cfg
 rom.cfg
+rom_vc.cfg
 config.ini
+config_vc.ini
 keybinds.ini
 *.local.toml
 *.local.ini
