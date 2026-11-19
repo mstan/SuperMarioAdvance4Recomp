@@ -26,60 +26,103 @@ endif()
 set(GBARECOMP_ENABLE_MODS ON CACHE BOOL "Enable the title mod catalog" FORCE)
 set(GBARECOMP_ENABLE_HQ2X ON CACHE BOOL "Include the optional HQx display mod" FORCE)
 add_subdirectory("${GBARECOMP_ROOT}" gbarecomp_build EXCLUDE_FROM_ALL)
-if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/generated/recompiled.cpp")
-    message(FATAL_ERROR
-        "Stale monolithic generated/recompiled.cpp found. "
-        "Run tools/regen.ps1 with the current gbarecomp worktree.")
+# One executable per generated corpus. The stock build is always configured.
+# The VC Edition build (game_vc.toml: stock ROM + VC Edition xdelta, which
+# restores the e-Reader-only content) is added once tools/regen.ps1 -Variant vc
+# has populated generated_vc/ and game_vc.toml carries the pinned identity.
+function(sma4_add_game target generated_dir game_config debug_port window_title)
+    if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/${generated_dir}/recompiled.cpp")
+        message(FATAL_ERROR
+            "Stale monolithic ${generated_dir}/recompiled.cpp found. "
+            "Run tools/regen.ps1 with the current gbarecomp worktree.")
+    endif()
+    file(GLOB generated_sources CONFIGURE_DEPENDS
+        "${CMAKE_CURRENT_SOURCE_DIR}/${generated_dir}/*.c"
+        "${CMAKE_CURRENT_SOURCE_DIR}/${generated_dir}/*.cpp")
+
+    add_executable(${target}
+        src/main.cpp
+        src/smb3_extended_view.cpp
+        src/smb3_entity_view.cpp
+        src/mods/smb3_adaptive_view_plugin.cpp
+        ${generated_sources})
+    gbarecomp_stage_hq2x(${target})
+    if(TARGET gbarecomp_hqx)
+        target_sources(${target} PRIVATE src/mods/hqx_plugin.cpp)
+    endif()
+
+    set(recompiled_sources ${generated_sources})
+    list(FILTER recompiled_sources INCLUDE REGEX
+        "/recompiled_[0-9]+\\.cpp$")
+    if(recompiled_sources)
+        set_source_files_properties(${recompiled_sources} PROPERTIES
+            COMPILE_OPTIONS "-O1;-g0")
+    endif()
+
+    target_include_directories(${target} PRIVATE
+        "${GBARECOMP_ROOT}/src/armv4t"
+        "${GBARECOMP_ROOT}/src/gba"
+        "${GBARECOMP_ROOT}/src/runtime"
+        "${GBARECOMP_ROOT}/src/debug")
+
+    add_custom_command(TARGET ${target} POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_directory
+            "${CMAKE_CURRENT_SOURCE_DIR}/mods/preloaded"
+            "$<TARGET_FILE_DIR:${target}>/mods")
+
+    target_link_libraries(${target} PRIVATE
+        "-Wl,--start-group"
+        gbarecomp_runtime
+        gbarecomp_debug
+        gbarecomp_gba
+        gbarecomp_armv4t
+        "-Wl,--end-group")
+
+    target_compile_definitions(${target} PRIVATE
+        GBARECOMP_DEFAULT_DEBUG_PORT=${debug_port}
+        GBARECOMP_WINDOW_TITLE="${window_title}"
+        GBARECOMP_DEFAULT_GAME_CONFIG="${game_config}")
+
+    if(MSVC)
+        target_link_options(${target} PRIVATE /STACK:16777216)
+    elseif(MINGW OR WIN32)
+        target_link_options(${target} PRIVATE -Wl,--stack,16777216)
+    endif()
+endfunction()
+
+sma4_add_game(SuperMarioAdvance4Recomp generated game.toml 19883
+    "SuperMarioAdvance4Recomp")
+set(SMA4_GAME_TARGETS SuperMarioAdvance4Recomp)
+
+set(SMA4_VC_ROM_SHA1 "")
+file(STRINGS "${CMAKE_CURRENT_SOURCE_DIR}/game_vc.toml" _sma4_vc_identity
+    REGEX "^sha1 = \"[0-9a-f]+\"")
+if(_sma4_vc_identity)
+    list(GET _sma4_vc_identity 0 _sma4_vc_identity)
+    string(REGEX REPLACE "^sha1 = \"([0-9a-f]+)\"" "\\1"
+        SMA4_VC_ROM_SHA1 "${_sma4_vc_identity}")
 endif()
-file(GLOB GAME_GENERATED_SOURCES CONFIGURE_DEPENDS
-    "${CMAKE_CURRENT_SOURCE_DIR}/generated/*.c"
-    "${CMAKE_CURRENT_SOURCE_DIR}/generated/*.cpp")
-
-add_executable(SuperMarioAdvance4Recomp
-    src/main.cpp
-    src/smb3_extended_view.cpp
-    src/smb3_entity_view.cpp
-    src/mods/smb3_adaptive_view_plugin.cpp
-    ${GAME_GENERATED_SOURCES})
-gbarecomp_stage_hq2x(SuperMarioAdvance4Recomp)
-if(TARGET gbarecomp_hqx)
-    target_sources(SuperMarioAdvance4Recomp PRIVATE src/mods/hqx_plugin.cpp)
+file(GLOB _sma4_vc_generated
+    "${CMAKE_CURRENT_SOURCE_DIR}/generated_vc/recompiled_*.cpp")
+string(LENGTH "${SMA4_VC_ROM_SHA1}" _sma4_vc_sha1_len)
+if(NOT _sma4_vc_sha1_len EQUAL 40)
+    message(STATUS "VC Edition: game_vc.toml is unpinned "
+        "(run tools/vc_edition.py pin); SuperMarioAdvance4VCRecomp not configured")
+elseif(NOT _sma4_vc_generated)
+    message(STATUS "VC Edition: generated_vc/ is empty "
+        "(run tools/regen.ps1 -Variant vc); SuperMarioAdvance4VCRecomp not configured")
+else()
+    sma4_add_game(SuperMarioAdvance4VCRecomp generated_vc game_vc.toml 19884
+        "SuperMarioAdvance4Recomp (VC Edition)")
+    target_compile_definitions(SuperMarioAdvance4VCRecomp PRIVATE
+        SMA4_VC_EDITION=1
+        SMA4_VC_ROM_SHA1="${SMA4_VC_ROM_SHA1}")
+    list(APPEND SMA4_GAME_TARGETS SuperMarioAdvance4VCRecomp)
+    message(STATUS "VC Edition: SuperMarioAdvance4VCRecomp (${SMA4_VC_ROM_SHA1})")
 endif()
-
-set(GAME_RECOMPILED_SOURCES ${GAME_GENERATED_SOURCES})
-list(FILTER GAME_RECOMPILED_SOURCES INCLUDE REGEX
-    "/recompiled_[0-9]+\\.cpp$")
-if(GAME_RECOMPILED_SOURCES)
-    set_source_files_properties(${GAME_RECOMPILED_SOURCES} PROPERTIES
-        COMPILE_OPTIONS "-O1;-g0")
-endif()
-
-target_include_directories(SuperMarioAdvance4Recomp PRIVATE
-    "${GBARECOMP_ROOT}/src/armv4t"
-    "${GBARECOMP_ROOT}/src/gba"
-    "${GBARECOMP_ROOT}/src/runtime"
-    "${GBARECOMP_ROOT}/src/debug")
-
-add_custom_command(TARGET SuperMarioAdvance4Recomp POST_BUILD
-    COMMAND ${CMAKE_COMMAND} -E copy_directory
-        "${CMAKE_CURRENT_SOURCE_DIR}/mods/preloaded"
-        "$<TARGET_FILE_DIR:SuperMarioAdvance4Recomp>/mods")
-
-target_link_libraries(SuperMarioAdvance4Recomp PRIVATE
-    "-Wl,--start-group"
-    gbarecomp_runtime
-    gbarecomp_debug
-    gbarecomp_gba
-    gbarecomp_armv4t
-    "-Wl,--end-group")
 
 set_property(SOURCE src/main.cpp APPEND PROPERTY COMPILE_DEFINITIONS
     GBARECOMP_GAME_VERSION="${GAME_BUILD_VERSION}")
-
-target_compile_definitions(SuperMarioAdvance4Recomp PRIVATE
-    GBARECOMP_DEFAULT_DEBUG_PORT=19883
-    GBARECOMP_WINDOW_TITLE="SuperMarioAdvance4Recomp"
-    GBARECOMP_DEFAULT_GAME_CONFIG="game.toml")
 
 enable_testing()
 add_executable(sma4_view_tests
@@ -111,13 +154,9 @@ if(GBAGAME_RECOMP_UI)
     target_compile_definitions(game_launcher_ui PRIVATE GBARECOMP_ENABLE_MODS=1)
     find_package(SDL2 REQUIRED)
     target_link_libraries(game_launcher_ui PUBLIC SDL2::SDL2)
-    target_link_libraries(SuperMarioAdvance4Recomp PRIVATE game_launcher_ui)
+    foreach(game_target IN LISTS SMA4_GAME_TARGETS)
+        target_link_libraries(${game_target} PRIVATE game_launcher_ui)
+    endforeach()
     set_property(SOURCE src/main.cpp APPEND PROPERTY
         COMPILE_DEFINITIONS GBAGAME_RECOMP_UI)
-endif()
-
-if(MSVC)
-    target_link_options(SuperMarioAdvance4Recomp PRIVATE /STACK:16777216)
-elseif(MINGW OR WIN32)
-    target_link_options(SuperMarioAdvance4Recomp PRIVATE -Wl,--stack,16777216)
 endif()

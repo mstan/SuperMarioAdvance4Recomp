@@ -55,6 +55,25 @@ LGPL source are included under `third-party/hqx`.
   rather than adding playable columns. Stage and enemy coverage remains
   partial. Menus keep native framing. The mod can be disabled in the Mods catalog.
 
+## VC Edition (e-Reader levels)
+
+The "VC Edition" patch (`SMA4_USA_Australia_Rev_1_to_USA_VC_Edition.xdelta`)
+puts the content that originally required the Nintendo e-Reader back on the
+cartridge. Because it changes game code as well as data, it runs in its own
+executable, `SuperMarioAdvance4VCRecomp.exe`, generated from the patched image.
+
+1. Patch your **USA/Australia, Rev 1** ROM with the `.xdelta` (Delta Patcher,
+   or `python tools/vc_edition.py apply --rom <stock.gba> --patch <file.xdelta>`).
+   The result is 8 MiB with SHA-1 `dd2879329ec52bd5372f26b75297a67f1a81215a`.
+2. Run `SuperMarioAdvance4VCRecomp.exe`, select that patched ROM and your BIOS,
+   then **Play**.
+3. On the SMB3 file screen choose **Level Card** to reach World-e and the
+   card levels.
+
+Only that exact patch release is accepted. The VC Edition keeps its own save
+(`saves/super_mario_advance_4_usa_vc.sav`) and launcher settings
+(`config_vc.ini`). Neither the ROM nor the patch is distributed.
+
 ## Controls
 
 | GBA control | Keyboard |
@@ -83,6 +102,12 @@ pwsh tools/regen.ps1
 cmake -S . -B build -G Ninja
 cmake --build build --target SuperMarioAdvance4Recomp
 ```
+
+For the VC Edition, also run `pwsh tools/regen.ps1 -Variant vc -Rom <rom>`,
+where `<rom>` is either the patched VC Edition ROM or the stock ROM (the patch
+is then read from `-Patch`; see [`baserom.md`](baserom.md)); the next configure
+adds the `SuperMarioAdvance4VCRecomp` target, and
+`pwsh tools/make_release.ps1 -Version <v> -IncludeVC` packages both builds.
 
 Generation requires the supported ROM revision and a retail GBA BIOS. Their
 identities and local development paths are documented in

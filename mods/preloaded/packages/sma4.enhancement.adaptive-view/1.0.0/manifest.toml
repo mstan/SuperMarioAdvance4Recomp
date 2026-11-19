@@ -12,6 +12,10 @@ save_compatibility = "shared"
 game_id = "super-mario-advance-4-us-rev1"
 rom_sha1 = "532f3307021637474b6dd37da059ca360f612337"
 
+[[target]]
+game_id = "super-mario-advance-4-us-rev1"
+rom_sha1 = "dd2879329ec52bd5372f26b75297a67f1a81215a"
+
 [[feature]]
 id = "adaptive-view"
 name = "Adaptive Widescreen (Experimental)"
