@@ -175,6 +175,9 @@ affiliation with or endorsement from Nintendo.
 5. Select PLAY. Pixel Smoothing is optional and off by default; enable it under
    Mods and select HQ2x, HQ3x or HQ4x before Play if desired.
 
+Gameplay Diagnostics > Record Gameplay in Mods records a bounded local replay
+by default. Turn it off to stop recording and save your preference.
+
 The ROM and retail GBA BIOS are not included. Supply your own dumps.
 Interactive play has no implicit runtime step limit; only an explicit
 ``--steps`` option applies a deterministic upper bound.
