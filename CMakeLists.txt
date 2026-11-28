@@ -26,14 +26,8 @@ endif()
 set(GBARECOMP_ENABLE_MODS ON CACHE BOOL "Enable the title mod catalog" FORCE)
 set(GBARECOMP_ENABLE_HQ2X ON CACHE BOOL "Include the optional HQx display mod" FORCE)
 add_subdirectory("${GBARECOMP_ROOT}" gbarecomp_build EXCLUDE_FROM_ALL)
-if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/generated/recompiled.cpp")
-    message(FATAL_ERROR
-        "Stale monolithic generated/recompiled.cpp found. "
-        "Run tools/regen.ps1 with the current gbarecomp worktree.")
-endif()
-file(GLOB GAME_GENERATED_SOURCES CONFIGURE_DEPENDS
-    "${CMAKE_CURRENT_SOURCE_DIR}/generated/*.c"
-    "${CMAKE_CURRENT_SOURCE_DIR}/generated/*.cpp")
+gbarecomp_collect_generated_sources(GAME_GENERATED_SOURCES
+    DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/generated")
 
 add_executable(SuperMarioAdvance4Recomp
     src/main.cpp
@@ -65,13 +59,7 @@ add_custom_command(TARGET SuperMarioAdvance4Recomp POST_BUILD
         "${CMAKE_CURRENT_SOURCE_DIR}/mods/preloaded"
         "$<TARGET_FILE_DIR:SuperMarioAdvance4Recomp>/mods")
 
-target_link_libraries(SuperMarioAdvance4Recomp PRIVATE
-    "-Wl,--start-group"
-    gbarecomp_runtime
-    gbarecomp_debug
-    gbarecomp_gba
-    gbarecomp_armv4t
-    "-Wl,--end-group")
+gbarecomp_target_runtime(SuperMarioAdvance4Recomp)
 
 set_property(SOURCE src/main.cpp APPEND PROPERTY COMPILE_DEFINITIONS
     GBARECOMP_GAME_VERSION="${GAME_BUILD_VERSION}")
@@ -116,8 +104,4 @@ if(GBAGAME_RECOMP_UI)
         COMPILE_DEFINITIONS GBAGAME_RECOMP_UI)
 endif()
 
-if(MSVC)
-    target_link_options(SuperMarioAdvance4Recomp PRIVATE /STACK:16777216)
-elseif(MINGW OR WIN32)
-    target_link_options(SuperMarioAdvance4Recomp PRIVATE -Wl,--stack,16777216)
-endif()
+gbarecomp_target_link_host_stack(SuperMarioAdvance4Recomp PRIVATE 16777216)
